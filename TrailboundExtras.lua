@@ -303,7 +303,7 @@ local function Button(parent, text, x, y, width, callback)
     if ForeverAssistStyleButton then ForeverAssistStyleButton(button) end
     return button
 end
-local junkWindow, junkContent, junkRows, junkNote, junkSell, junkDelete
+local junkWindow, junkContent, junkRows, junkNote, junkSell, junkDelete, junkLoot
 function E.RefreshJunk()
     if not junkWindow or not junkWindow:IsShown() then return end
     local list, missing = E.ScanJunk(false)
@@ -336,27 +336,89 @@ function E.RefreshJunk()
     junkContent:SetHeight(math.max(1,#list*25))
     junkSell:SetEnabled(MerchantOpen() and not sale and not InCombatLockdown())
     junkDelete:SetEnabled(#list>0 and not missing and not InCombatLockdown())
+    if junkLoot then junkLoot:SetEnabled(not InCombatLockdown()) end
     junkNote:SetText("Lowest stack vendor value first. Delete removes a STACK.\nRight-click removes from list only. Drop items to add them back.")
 end
 function E.ToggleJunk()
     if not junkWindow then
-        junkWindow=Window("ForeverAssistJunk","Junk Manager",400,330);junkRows={}
+        junkWindow=Window("ForeverAssistJunk","Junk Manager",400,372);junkRows={}
         junkWindow:SetScript("OnReceiveDrag",E.AddCursorJunk)
         junkWindow:SetScript("OnMouseUp",function() if CursorHasItem() then E.AddCursorJunk() end end)
         local scroll=CreateFrame("ScrollFrame",nil,junkWindow,"UIPanelScrollFrameTemplate");scroll:SetPoint("TOPLEFT",24,-48);scroll:SetPoint("BOTTOMRIGHT",-44,112)
         junkContent=CreateFrame("Frame",nil,scroll);junkContent:SetSize(330,1);scroll:SetScrollChild(junkContent)
         scroll:SetScript("OnReceiveDrag",E.AddCursorJunk);junkContent:SetScript("OnReceiveDrag",E.AddCursorJunk)
-        junkNote=junkWindow:CreateFontString(nil,"OVERLAY","TrailboundSmall");junkNote:SetPoint("BOTTOMLEFT",24,68);junkNote:SetWidth(350);junkNote:SetJustifyH("LEFT")
+        junkNote=junkWindow:CreateFontString(nil,"OVERLAY","TrailboundSmall");junkNote:SetPoint("BOTTOMLEFT",24,110);junkNote:SetWidth(350);junkNote:SetJustifyH("LEFT")
         junkSell=Button(junkWindow,"Sell listed items",24,-282,166,function() E.StartSale(false);E.RefreshJunk() end)
         junkDelete=Button(junkWindow,"Delete lowest stack",202,-282,174,function()
             local list, missing=E.ScanJunk(false)
             if list[1] and not missing then StaticPopup_Show("FOREVERASSIST_DELETE_JUNK",(list[1].link or ("Item "..list[1].id)) .. " x" .. list[1].count,nil,Copy(list[1])) end
+        end)
+        junkLoot=Button(junkWindow,"Delete lowest-value item & loot",24,-318,352,function()
+            local row=E.LowestWorth()
+            if row then StaticPopup_Show("FOREVERASSIST_DELETE_FOR_LOOT",(row.link or ("Item "..row.id)).." x"..row.count,nil,Copy(row))
+            else Print("Nothing safe to delete: no listed junk and no item with a vendor value.") end
         end)
         junkSell:HookScript("OnReceiveDrag",E.AddCursorJunk);junkDelete:HookScript("OnReceiveDrag",E.AddCursorJunk)
         junkWindow:SetScript("OnShow",E.RefreshJunk)
     end
     junkWindow:SetShown(not junkWindow:IsShown());E.RefreshJunk()
 end
+-- Bags full while looting: open the junk manager and offer to delete the lowest-value item.
+local function LootOpen() return GetNumLootItems and (GetNumLootItems() or 0)>0 and LootFrame and LootFrame:IsShown() end
+local function ProtectedItem(id)
+    local fn = C_Item and C_Item.GetItemInfoInstant
+    if not fn then return true end
+    local ok, _, _, _, _, _, classID = pcall(fn, id)
+    return not ok or classID == 12 or classID == 13 -- quest items and keys are never offered
+end
+-- Listed junk first (cheapest stack); otherwise the cheapest vendor-valued stack in the bags.
+function E.LowestWorth()
+    local list = E.ScanJunk(false)
+    if list[1] then return list[1] end
+    local best, bestValue
+    local C = Container()
+    local slots = C.GetContainerNumSlots or GetContainerNumSlots
+    if not slots then return end
+    for bag = 0, (NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4) do
+        local ok, n = pcall(slots, bag)
+        for slot = 1, (ok and n or 0) do
+            local info = BagInfo(bag, slot)
+            if info and info.itemID and not info.isLocked and not info.hasNoValue and not ProtectedItem(info.itemID) then
+                local price, quality = ItemPrice(info.itemID)
+                if type(price) == "number" and price > 0 then
+                    local count = info.stackCount or 1
+                    local value = price * count
+                    if not bestValue or value < bestValue then
+                        bestValue = value
+                        best = {bag=bag, slot=slot, id=info.itemID, link=info.hyperlink, count=count, price=price, quality=info.quality or quality, locked=info.isLocked}
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+StaticPopupDialogs["FOREVERASSIST_DELETE_FOR_LOOT"] = {
+    text="Bags are full. Delete the entire stack of %s to make room and loot the new item? This cannot be undone.", button1=DELETE or "Delete", button2=CANCEL or "Cancel",
+    OnAccept=function(self, data) E.retryLoot = true; DeleteItem(data or self.data) end,
+    timeout=0, whileDead=false, hideOnEscape=true, preferredIndex=3,
+}
+local fullEvents, lastFullOpen = CreateFrame("Frame"), 0
+fullEvents:RegisterEvent("UI_ERROR_MESSAGE"); fullEvents:RegisterEvent("BAG_UPDATE_DELAYED")
+fullEvents:SetScript("OnEvent", function(_, event, first, second)
+    if event == "UI_ERROR_MESSAGE" then
+        local message = type(second) == "string" and second or first
+        if issecretvalue and issecretvalue(message) then return end
+        if getSettings and getSettings().fullBagJunk ~= false and ERR_INV_FULL and message == ERR_INV_FULL and LootOpen() and GetTime() - lastFullOpen > 2 then
+            lastFullOpen = GetTime()
+            if not (junkWindow and junkWindow:IsShown()) then E.ToggleJunk() end
+            Print("Bags are full. Junk manager opened: use \"Delete lowest-value item & loot\" to make room.")
+        end
+    elseif E.retryLoot then
+        E.retryLoot = false
+        if LootOpen() and not InCombatLockdown() then for i = GetNumLootItems(), 1, -1 do pcall(LootSlot, i) end end
+    end
+end)
 local profileWindow, profileName, profileContent, profileRows, profileStatus
 function E.RefreshProfiles()
     if not profileWindow or not profileWindow:IsShown() then return end

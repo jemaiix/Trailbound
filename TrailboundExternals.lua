@@ -1,5 +1,5 @@
 -- External notices require readable, timed auras from a confirmed other player.
-ForeverAssistExternals={Version='1.8.54'}
+ForeverAssistExternals={Version='1.8.71'}
 local X=ForeverAssistExternals
 local getSettings,root,options
 local spells={[10060]=true,[29166]=true,[1022]=true,[5599]=true,[10278]=true,[1044]=true,
@@ -18,6 +18,7 @@ function X.Accept(a)
 end
 function X.Refresh()
  if not getSettings then return end
+ if getSettings().externalNotices~=true then if root then root:Hide() end;return end
  if not root then
   root=CreateFrame('Frame','ForeverAssistExternalsText',UIParent);root:SetSize(560,90);root:SetFrameStrata('HIGH')
   root.label=root:CreateFontString(nil,'OVERLAY','TrailboundText');root.label:SetAllPoints();root.label:SetJustifyH('CENTER')
@@ -25,7 +26,7 @@ function X.Refresh()
  local c=getSettings();local p=c.externalPosition;root:ClearAllPoints();root:SetPoint('CENTER',UIParent,'CENTER',p and p[1] or 0,p and p[2] or 230)
  root.label:SetFont(STANDARD_TEXT_FONT,c.externalFontSize or 18,'OUTLINE');root.label:SetTextColor(unpack(TrailboundTheme.accent))
  local lines={}
- if c.externalNotices~=false and not (ForeverAssistLayout and ForeverAssistLayout.active) then
+ if c.externalNotices==true and not (ForeverAssistLayout and ForeverAssistLayout.active) then
   for i=1,255 do
    local a,readable=ForeverAssistReadPlayerAura(i)
    if not readable then lines={};break end
@@ -43,7 +44,7 @@ function X.Options()
   local c=CreateFrame('CheckButton',nil,options,'UICheckButtonTemplate');c:SetPoint('TOPLEFT',20,-65)
   local label=c:CreateFontString(nil,'OVERLAY','TrailboundText');label:SetPoint('LEFT',c,'RIGHT',3,0);label:SetText('Show important buffs from other players')
   c:SetScript('OnClick',function(self)getSettings().externalNotices=self:GetChecked() and true or false;X.Refresh()end)
-  options:SetScript('OnShow',function()c:SetChecked(getSettings().externalNotices~=false)end)
+  options:SetScript('OnShow',function()c:SetChecked(getSettings().externalNotices==true)end)
   local help=options:CreateFontString(nil,'OVERLAY','TrailboundText');help:SetPoint('TOPLEFT',20,-115);help:SetWidth(440);help:SetJustifyH('LEFT');help:SetText('Power Infusion, Innervate, protection, freedom, sacrifice, Fear Ward and shields from another player.\n\nOnly confirmed aura durations are shown. Restricted or unknown casters are hidden.\n\nUse Edit mode to move the text notice. Your own cooldowns are excluded.')
   options:Hide()
  end

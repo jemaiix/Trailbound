@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.54
+-- Trailbound 1.8.71
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -12,7 +12,7 @@
 --------------------------------------------------------------------
 local DB, characterDB
 local defaults = {
-    gossipVendor = true, gossipTrainer = false,
+    gossipVendor = true, gossipTrainer = false, gossipBank = true, compactMinimap = true, mailPrefill = true, customBag = false,
     acceptQuests = true, turnInQuests = true,
     sellJunk = true, junkReport = true,
     fsr = true, fsrScale = 1,
@@ -21,22 +21,50 @@ local defaults = {
     sparkle = true,
     petReminder = true, sleepingBagReminder = true, audioFollowSystem = true, flightTimer = true, levelTimes = true, levelTimesBackgroundOpacity = 0, craftProfit = true,
     buffs = true, buffsHideCombat = false, buffsHideMounted = true,
+    manaGemReminder = true, wellFedLeveling = true, lowBagWarning = true, fullBagJunk = true,
+    chatClassIcons = true, chatRaceIcons = true, chatCompact = true, chatTight = true, chatCopyLinks = true,
     buffSize = 48, buffTextSize = 14, buffX = 0, buffY = 150,
 }
 local skipQuests = {}
+-- Auto-accept bookkeeping: a refused quest (log full, not allowed) must not be retried in a loop.
+local declinedQuests, acceptPaused, lastAccept, lastFullWarning = {}, false, nil, 0
+local function QuestLogHasRoom()
+    local getNum = C_QuestLog and C_QuestLog.GetNumQuestLogEntries
+    if not getNum then return true end
+    local _, numQuests = getNum()
+    local max = C_QuestLog.GetMaxNumQuestsCanAccept and C_QuestLog.GetMaxNumQuestsCanAccept() or 25
+    if type(numQuests) ~= "number" or type(max) ~= "number" or max <= 0 then return true end
+    return numQuests < max
+end
+local function AutoAcceptAllowed(questID)
+    if acceptPaused then return false end
+    if questID and declinedQuests[questID] then return false end
+    if not QuestLogHasRoom() then
+        if GetTime() - lastFullWarning > 15 then
+            lastFullWarning = GetTime()
+            print("|cffd2b077Trailbound:|r Quest log is full, so auto-accept is paused until you free a slot.")
+        end
+        return false
+    end
+    return true
+end
 
 local function Print(msg) print("|cffd2b077Trailbound:|r " .. msg) end
 
 --------------------------------------------------------------------
 -- Gossip
 --------------------------------------------------------------------
-local ICON_VENDOR, ICON_TRAINER = 132060, 132058
+local ICON_VENDOR, ICON_TRAINER, ICON_BANKER = 132060, 132058, 132057
 
 local function OptionKind(o)
     if o.type then return o.type end
     local icon = o.overrideIconID or o.icon
     if icon == ICON_VENDOR then return "vendor" end
     if icon == ICON_TRAINER then return "trainer" end
+    if icon == ICON_BANKER then return "banker" end
+    -- Banker gossip is named "The bank" (or mentions a deposit box) in the options list.
+    local name = o.name
+    if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name:lower():find("bank", 1, true) then return "banker" end
 end
 
 local function HandleGossip()
@@ -44,8 +72,10 @@ local function HandleGossip()
 
     if DB.acceptQuests then
         for _, q in ipairs(C_GossipInfo.GetAvailableQuests() or {}) do
-            C_GossipInfo.SelectAvailableQuest(q.questID)
-            return
+            if AutoAcceptAllowed(q.questID) then
+                C_GossipInfo.SelectAvailableQuest(q.questID)
+                return
+            end
         end
     end
     if DB.turnInQuests then
@@ -59,7 +89,7 @@ local function HandleGossip()
 
     for _, o in ipairs(C_GossipInfo.GetOptions() or {}) do
         local kind = OptionKind(o)
-        if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) then
+        if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) or (kind == "banker" and DB.gossipBank) then
             C_GossipInfo.SelectOption(o.gossipOptionID)
             return
         end
@@ -88,7 +118,7 @@ end
 
 local function HandleQuestGreeting()
     if IsShiftKeyDown() then return end
-    if DB.acceptQuests then
+    if DB.acceptQuests and AutoAcceptAllowed() then
         for i = 1, GetNumAvailableQuests() do SelectAvailableQuest(i) return end
     end
     if DB.turnInQuests then
@@ -187,18 +217,22 @@ fsr:SetScript("OnUpdate", function(self)
     end
 end)
 
+-- Only spells that spend mana start the five-second rule. Drinks, food, mounts and wand
+-- shots report no mana cost (or no cost data at all), so unknown means no.
 local function CostsMana(spellID)
     local fn = (C_Spell and C_Spell.GetSpellPowerCost) or GetSpellPowerCost
-    if fn then
-        local ok, costs = pcall(fn, spellID)
-        if ok and type(costs) == "table" then
-            for _, c in ipairs(costs) do
-                if c.type == 0 and (c.cost or 0) > 0 then return true end
-            end
-            return false
+    if not fn or not spellID then return false end
+    if issecretvalue and issecretvalue(spellID) then return false end
+    local ok, result = pcall(function()
+        local costs = fn(spellID)
+        if type(costs) ~= "table" then return false end
+        for _, c in ipairs(costs) do
+            local kind, cost = c.type, c.cost
+            if not (issecretvalue and (issecretvalue(kind) or issecretvalue(cost))) and kind == 0 and (cost or 0) > 0 then return true end
         end
-    end
-    return UnitPowerType("player") == 0
+        return false
+    end)
+    return ok and result == true
 end
 
 local function StartFSR()
@@ -506,7 +540,7 @@ local function GetReminderIcon(i)
         b.label = b:CreateFontString(nil, "OVERLAY")
         b.label:SetPoint("TOP", b, "BOTTOM", 0, -2)
         b:EnableMouse(true);b:RegisterForDrag("LeftButton")
-        b:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_TOP");GameTooltip:AddLine(self.fullLabel or "Reminder",1,1,1);if self.castSpell then GameTooltip:AddLine("Click to cast on yourself",.45,1,.65) end;GameTooltip:Show() end)
+        b:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_TOP");GameTooltip:AddLine(self.fullLabel or "Reminder",1,1,1);if self.castSpell then GameTooltip:AddLine(self.clickText or "Click to cast on yourself",.45,1,.65) end;GameTooltip:Show() end)
         b:SetScript("OnLeave",function() GameTooltip:Hide() end)
         b:SetScript("OnDragStart",function() if unlocked and not InCombatLockdown() then rem:StartMoving() end end)
         b:SetScript("OnDragStop",function() local fn=rem:GetScript("OnDragStop");if fn then fn(rem) end end)
@@ -542,7 +576,7 @@ local function LayoutReminder(list)
         b.label:SetFont(STANDARD_TEXT_FONT, tsize, "OUTLINE")
         b.label:SetWidth(spacing-4);b.label:SetHeight(tsize*2+4);b.label:SetJustifyH("CENTER");b.label:SetWordWrap(true)
         b.fullLabel=g.label
-        b.castSpell=not unlocked and g.spell or nil
+        b.castSpell=not unlocked and g.spell or nil;b.clickText=g.clickText
         b:SetAttribute("type",b.castSpell and "spell" or nil)
         b:SetAttribute("spell",b.castSpell)
         b:SetAttribute("unit","player")
@@ -565,7 +599,7 @@ local function UpdateReminder()
     local sleeping=not unlocked and ForeverAssistReminders.SleepingBagReminder(auras,DB.sleepingBagReminder)
     if unlocked then
         list = { { label = "Drag me", icon = 134400 }, { label = "Preview", icon = 134400 } }
-    elseif (DB.buffs or DB.gathering or DB.petReminder or DB.sleepingBagReminder)
+    elseif (DB.buffs or DB.gathering or DB.petReminder or DB.sleepingBagReminder or DB.manaGemReminder~=false or DB.wellFedLeveling~=false)
         and not ForeverAssistReminders.InCapital()
         and not UnitIsDeadOrGhost("player")
         and not (DB.buffsHideCombat and UnitAffectingCombat("player"))
@@ -583,6 +617,8 @@ local function UpdateReminder()
         end
         for _, g in ipairs(ForeverAssistSystems.GatheringReminders()) do list[#list + 1] = g end
         if DB.petReminder then local pet=ForeverAssistReminders.PetReminder(auras);if pet then list[#list+1]=pet end end
+        if DB.manaGemReminder~=false then local gem=ForeverAssistReminders.ManaGemReminder();if gem then list[#list+1]=gem end end
+        if DB.wellFedLeveling~=false then local food=ForeverAssistReminders.WellFedReminder(auras);if food then list[#list+1]=food end end
         if sleeping then list[#list+1]=sleeping end
     end
     LayoutReminder(list)
@@ -772,12 +808,13 @@ local function CreateOptions()
     heading(general,'Interactions',-70)
     Check(general,"gossipVendor","Auto-open vendor window",0,-99)
     Check(general,"gossipTrainer","Auto-open trainer window",0,-132)
-    Check(general,"acceptQuests","Auto-accept quests",0,-165)
-    Check(general,"turnInQuests","Auto turn-in without reward choice",0,-198)
-    Check(general,"sparkle","Highlight quest objects",0,-231,function() ApplySparkle(true) end)
-    label(general,'Hold Shift while talking to an NPC to bypass gossip, quest acceptance and automatic turn-ins.',2,-270,470)
-    heading(general,'Training catalogues',-324)
-    Check(general,"book","Show class spells in spellbook",0,-353,SetBookShown)
+    Check(general,"gossipBank","Auto-open bank window",0,-165)
+    Check(general,"acceptQuests","Auto-accept quests",0,-198)
+    Check(general,"turnInQuests","Auto turn-in without reward choice",0,-231)
+    Check(general,"sparkle","Highlight quest objects",0,-264,function() ApplySparkle(true) end)
+    label(general,'Hold Shift while talking to an NPC to bypass gossip, quest acceptance and automatic turn-ins.',2,-303,470)
+    heading(general,'Training catalogues',-357)
+    Check(general,"book","Show class spells in spellbook",0,-386,SetBookShown)
     local junk=section('inventory','ForeverAssistJunkOptions','Bags, banks & vendors','Account inventory, bag movement, looting, and automatic selling.')
     heading(junk,'Vendor junk',-70)
     Check(junk,"sellJunk","Auto-sell gray items",0,-99,function() if not DB.sellJunk then ForeverAssistExtras.CancelAutomaticSale() end end)
@@ -788,9 +825,10 @@ local function CreateOptions()
     heading(junk,'Account inventory & movement',-260)
     Check(junk,"accountBags","Account bags, saved banks, gold & item counts",0,-289,function() ForeverAssistSystems.HookWindows() end)
     Check(junk,"moveBags","Drag bag headers to move",0,-322,applyPlay)
-    Button(junk,"Browse account bags",0,-369,function() opt:Hide();ForeverAssistSystems.ToggleInventory() end)
-    Button(junk,"Reset bag positions",220,-369,function() ForeverAssistPlay.ResetBags() end)
-    Check(junk,"fastLoot","Faster auto looting",0,-421,applyPlay)
+    Check(junk,"combinedReagents","Show the reagent bag in a drawer under the combined backpack",0,-355,applyPlay)
+    Button(junk,"Browse account bags",0,-398,function() opt:Hide();ForeverAssistSystems.ToggleInventory() end)
+    Button(junk,"Reset bag positions",220,-398,function() ForeverAssistPlay.ResetBags() end)
+    Check(junk,"fastLoot","Faster auto looting",0,-440,applyPlay)
     local recovery=section('recovery','ForeverAssistRecoveryOptions','Combat & recovery','Combat errors, mana, food, drink, and camp timers.')
     heading(recovery,'Combat',-70)
     Check(recovery,"quietErrors","Hide and mute common combat errors",0,-99,applyPlay)
@@ -800,8 +838,9 @@ local function CreateOptions()
     heading(recovery,'Recovery',-244)
     Check(recovery,"nutritionTimers","Food, drink, bandage & Cannibalize timers",0,-273,applyPlay)
     Check(recovery,"campNotices","Camp notices, Sit button and welcome timer",0,-306,applyPlay)
-    Button(recovery,"Move recovery timer",0,-348,function() ForeverAssistPlay.Options("nutrition") end)
-    label(recovery,"Food and drink show their remaining time in the middle of the screen. Well Fed gives a ready notice. Bandaging and Cannibalize follow their channels and stop when interrupted.",2,-394,460)
+    Check(recovery,"wellFedReminder","Remind me when Well Fed has under 2 minutes left",0,-339,applyPlay)
+    Button(recovery,"Move recovery timer",0,-381,function() ForeverAssistPlay.Options("nutrition") end)
+    label(recovery,"Food and drink show their remaining time in the middle of the screen. Well Fed gives a ready notice and a countdown in its last two minutes. Bandaging and Cannibalize follow their channels.",2,-427,460)
     local progress=section('progress','ForeverAssistProgressOptions','Experience & travel','Your experience bar, recorded level times, and flight-path timer.')
     heading(progress,'Experience bar',-70)
     Check(progress,'xpDetails','Show custom experience bar',0,-103,function()ForeverAssistPlay.UpdateXP()end)
@@ -827,14 +866,15 @@ local function CreateOptions()
     Check(display,"minimapMenu","Reveal addon icons on minimap right-click",0,-99,applyPlay)
     Check(display,"squareMinimap","Use a square minimap",0,-132,applyPlay)
     local gathering=Button(display,'Gathering display',220,-132,ForeverAssistGathering.Options);gathering:SetSize(240,24)
-    heading(display,'Audio',-166)
-    Check(display,"audioFollowSystem","Follow Windows audio output",0,-199,function() ForeverAssistAudio.ApplySettings() end)
-    Button(display,"Refresh audio",300,-199,function() ForeverAssistAudio.Refresh() end)
-    label(display,'Audio follows System Default and briefly restarts sound when your output device changes.',2,-248,470)
-    heading(display,'Camera',-321)
-    label(display,'Extended zoom is applied on login. Use the mouse wheel to zoom out. To set another limit, use /tb camera NUMBER (0–100).',2,-364,470)
+    Check(display,"compactMinimap","Close the gap under the minimap header, mail icon on the map",0,-165,applyPlay)
+    heading(display,'Audio',-199)
+    Check(display,"audioFollowSystem","Follow Windows audio output",0,-232,function() ForeverAssistAudio.ApplySettings() end)
+    Button(display,"Refresh audio",300,-232,function() ForeverAssistAudio.Refresh() end)
+    label(display,'Audio follows System Default and briefly restarts sound when your output device changes.',2,-281,470)
+    heading(display,'Camera',-354)
+    label(display,'Extended zoom is applied on login. Use the mouse wheel to zoom out. To set another limit, use /tb camera NUMBER (0–100).',2,-397,470)
     local buffOpt=CreateFrame("Frame","ForeverAssistBuffOptions",UIParent,"BackdropTemplate")
-    buffOpt:SetSize(410,640);buffOpt:SetPoint("CENTER");buffOpt:SetFrameStrata("DIALOG");buffOpt:SetClampedToScreen(true)
+    buffOpt:SetSize(410,690);buffOpt:SetPoint("CENTER");buffOpt:SetFrameStrata("DIALOG");buffOpt:SetClampedToScreen(true)
     buffOpt:SetBackdrop({bgFile="Interface/Tooltips/UI-Tooltip-Background",edgeFile="Interface/Tooltips/UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}});buffOpt:SetBackdropColor(.04,.04,.07,.96)
     buffOpt:SetMovable(true);buffOpt:EnableMouse(true);buffOpt:RegisterForDrag("LeftButton");buffOpt:SetScript("OnDragStart",buffOpt.StartMoving);buffOpt:SetScript("OnDragStop",buffOpt.StopMovingOrSizing)
     local closeBuff=CreateFrame("Button",nil,buffOpt,"UIPanelCloseButton");closeBuff:SetPoint("TOPRIGHT",-2,-2);closeBuff.faEditorClose=true
@@ -845,12 +885,14 @@ local function CreateOptions()
     Check(buffOpt, "buffsHideMounted", "Hide while mounted / on taxi", 20, -106, UpdateReminder)
     Check(buffOpt,"petReminder","Missing hunter / warlock pet",20,-130,UpdateReminder)
     Check(buffOpt,"sleepingBagReminder","Cozy Sleeping Bag reminder",20,-154,UpdateReminder)
-    Slider(buffOpt, "buffSize", "Icon size", 26, -206, 24, 96, 2, UpdateReminder)
-    Slider(buffOpt, "buffTextSize", "Text size", 26, -250, 8, 12, 1, UpdateReminder)
-    Slider(buffOpt, "buffX", "Position X", 26, -294, -1000, 1000, 5, AnchorReminder)
-    Slider(buffOpt, "buffY", "Position Y", 26, -338, -600, 600, 5, AnchorReminder)
-    unlockButton = Button(buffOpt, "Unlock & move reminder", 26, -376, function() SetUnlocked(not unlocked) end)
-    Button(buffOpt, "Reset position & size", 26, -406, function()
+    Check(buffOpt,"manaGemReminder","Mage: conjure a mana gem when you have none",20,-178,UpdateReminder)
+    Check(buffOpt,"wellFedLeveling","Missing Well Fed while leveling (below 60)",20,-202,UpdateReminder)
+    Slider(buffOpt, "buffSize", "Icon size", 26, -254, 24, 96, 2, UpdateReminder)
+    Slider(buffOpt, "buffTextSize", "Text size", 26, -298, 8, 12, 1, UpdateReminder)
+    Slider(buffOpt, "buffX", "Position X", 26, -342, -1000, 1000, 5, AnchorReminder)
+    Slider(buffOpt, "buffY", "Position Y", 26, -386, -600, 600, 5, AnchorReminder)
+    unlockButton = Button(buffOpt, "Unlock & move reminder", 26, -424, function() SetUnlocked(not unlocked) end)
+    Button(buffOpt, "Reset position & size", 26, -454, function()
         DB.buffX, DB.buffY, DB.buffSize, DB.buffTextSize =
             defaults.buffX, defaults.buffY, defaults.buffSize, defaults.buffTextSize
         AnchorReminder()
@@ -858,8 +900,8 @@ local function CreateOptions()
         optionsRefresh()
     end)
 
-    Check(buffOpt,"gathering","Gathering tracking reminders",20,-442,UpdateReminder)
-    local note=buffOpt:CreateFontString(nil,"OVERLAY","TrailboundSmall");note:SetPoint("TOPLEFT",22,-485);note:SetWidth(350);note:SetJustifyH("LEFT");note:SetText("Hidden in capital cities. Click buff / tracking icons to cast on yourself. Combat keeps the last safe set until combat ends. Hover for full names. Pet reminders respect petless talents. Sleeping-bag reminders require the item ready to use outdoors. Paladin blessings are automatic.")
+    Check(buffOpt,"gathering","Gathering tracking reminders",20,-490,UpdateReminder)
+    local note=buffOpt:CreateFontString(nil,"OVERLAY","TrailboundSmall");note:SetPoint("TOPLEFT",22,-533);note:SetWidth(350);note:SetJustifyH("LEFT");note:SetText("Hidden in capital cities. Click buff / tracking icons to cast on yourself. Combat keeps the last safe set until combat ends. Hover for full names. Pet reminders respect petless talents. Sleeping-bag reminders require the item ready to use outdoors. Paladin blessings are automatic.")
     buffOpt:SetScript("OnShow",function() optionsRefresh() end)
     buffOpt:SetScript("OnHide",function() if unlocked then SetUnlocked(false) end end)
     local backBuff=Button(buffOpt,"Back to settings",22,-554,function() buffOpt:Hide();opt:Show() end)
@@ -1017,7 +1059,7 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         ForeverAssistWindows.Initialize(characterDB)
         for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_LOGOUT", "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL",
             "QUEST_PROGRESS", "QUEST_COMPLETE", "UNIT_SPELLCAST_SUCCEEDED", "TRAINER_SHOW",
-            "TRAINER_UPDATE", "PLAYER_LEVEL_UP", "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "MERCHANT_SHOW",
+            "UI_ERROR_MESSAGE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_FINISHED", "GOSSIP_CLOSED", "TRAINER_UPDATE", "PLAYER_LEVEL_UP", "SPELLS_CHANGED", "LEARNED_SPELL_IN_TAB", "MERCHANT_SHOW",
             "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "UNIT_AURA", "UNIT_PET", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED", "ZONE_CHANGED_NEW_AREA" }) do
             pcall(self.RegisterEvent, self, e)
         end
@@ -1047,7 +1089,29 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "QUEST_GREETING" then
         HandleQuestGreeting()
     elseif event == "QUEST_DETAIL" then
-        if DB.acceptQuests and not IsShiftKeyDown() then AcceptQuest() end
+        if DB.acceptQuests and not IsShiftKeyDown() then
+            local id = GetQuestID and GetQuestID()
+            if AutoAcceptAllowed(id) then
+                lastAccept = { id = id, at = GetTime() }
+                AcceptQuest()
+            end
+        end
+    elseif event == "UI_ERROR_MESSAGE" then
+        -- The client refused the quest we just tried to accept: stop trying until something changes.
+        if lastAccept and GetTime() - lastAccept.at < 2 then
+            if lastAccept.id then declinedQuests[lastAccept.id] = true end
+            acceptPaused = true
+            lastAccept = nil
+        end
+    elseif event == "QUEST_ACCEPTED" then
+        local id = type(arg2) == "number" and arg2 or arg1
+        if type(id) == "number" then declinedQuests[id] = nil end
+        lastAccept = nil
+    elseif event == "QUEST_REMOVED" then
+        declinedQuests = {}   -- a slot was freed; allow another try
+        acceptPaused = false
+    elseif event == "QUEST_FINISHED" or event == "GOSSIP_CLOSED" then
+        acceptPaused = false  -- the dialog closed; declined quests stay declined, others may retry
     elseif event == "QUEST_PROGRESS" then
         if DB.turnInQuests and not IsShiftKeyDown() and IsQuestCompletable() then CompleteQuest() end
     elseif event == "QUEST_COMPLETE" then
@@ -1063,6 +1127,7 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             pcall(SetTrainerServiceTypeFilter, "used", 1)
         end
         ScanTrainer()
+        if event == "TRAINER_SHOW" and ForeverAssistSystems.TrainerOpened then ForeverAssistSystems.TrainerOpened() end
         ForeverAssistSystems.RefreshProfessions()
         RefreshBook()
         RefreshCataloguesSoon()
@@ -1102,7 +1167,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.54 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.71 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()

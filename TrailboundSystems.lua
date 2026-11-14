@@ -1,5 +1,5 @@
 -- Gathering, account inventory, separated training, professions and camera.
-ForeverAssistSystems = {Version="1.8.54"}
+ForeverAssistSystems = {Version="1.8.71"}
 local S = ForeverAssistSystems
 local account, character, getSettings, currentKey
 local moneyReadyAt=0
@@ -362,16 +362,69 @@ function S.ItemCounts(id)
     table.sort(list,function(a,b)return a.name<b.name end)
     return list,total
 end
+-- Bank contents are saved when each character visits the bank; sum them per saved bank record.
+local bankTotals=setmetatable({},{__mode='k'})
+local function BankCount(bankRecord,id)
+    local cache=bankTotals[bankRecord]
+    if not cache or cache.stamp~=bankRecord.updatedAt then
+        cache={stamp=bankRecord.updatedAt,items={}}
+        for _,bag in pairs(bankRecord.containers or {}) do
+            for _,item in pairs(bag.items or {}) do if item.id then cache.items[item.id]=(cache.items[item.id] or 0)+(item.count or 1) end end
+        end
+        bankTotals[bankRecord]=cache
+    end
+    return cache.items[id] or 0
+end
+-- Where an item is kept across the account: bags and bank, per character, current character first.
+function S.ItemLocations(id)
+    local byIdentity,list={}, {}
+    local me,myRealm=UnitName('player'),GetRealmName and GetRealmName()
+    local function entryFor(name,realm)
+        local identity=tostring(name)..'|'..tostring(realm)
+        local entry=byIdentity[identity]
+        if not entry then
+            entry={name=(realm and realm~='' and realm~=myRealm) and (name..' - '..realm) or name,bags=0,bank=0,current=(name==me and realm==myRealm)}
+            byIdentity[identity]=entry;list[#list+1]=entry
+        end
+        return entry
+    end
+    for _,record in pairs(account.characters or {}) do
+        local count=record.items and record.items[id] or 0
+        if count>0 then entryFor(record.name,record.realm).bags=count end
+    end
+    for _,bankRecord in pairs(account.bankCharacters or {}) do
+        local count=BankCount(bankRecord,id)
+        if count>0 then entryFor(bankRecord.name,bankRecord.realm).bank=count end
+    end
+    table.sort(list,function(a,b)
+        if a.current~=b.current then return a.current end
+        return a.name<b.name
+    end)
+    local bags,bank=0,0
+    for _,entry in ipairs(list) do bags=bags+entry.bags;bank=bank+entry.bank end
+    return list,bags,bank
+end
 function S.ItemTooltip(tooltip,id)
     if not account or not getSettings().accountBags or not id or id==6948 or id==2901 or id==7005 or id==5956 then return end
     if tooltip.faInventoryItem==id then return end
     tooltip.faInventoryItem=id
-    local list,total=S.ItemCounts(id)
+    local list,bags,bank=S.ItemLocations(id)
     if #list==0 then return end
+    local function where(entry)
+        local parts={}
+        if entry.bags>0 then parts[#parts+1]='Bags '..entry.bags end
+        if entry.bank>0 then parts[#parts+1]='Bank '..entry.bank end
+        return table.concat(parts,'   ')
+    end
     tooltip:AddLine(" ")
-    tooltip:AddLine("Account bags (last recorded)",0.3,1,0.6)
-    for _,entry in ipairs(list) do tooltip:AddDoubleLine(entry.name,tostring(entry.count),1,1,1,1,1,1) end
-    tooltip:AddDoubleLine("Total in bags",tostring(total),0.3,1,0.6,0.3,1,0.6)
+    tooltip:AddLine("Account items (last recorded)",0.3,1,0.6)
+    for _,entry in ipairs(list) do
+        local label=entry.current and (entry.name..' (this character)') or entry.name
+        if entry.current then tooltip:AddDoubleLine(label,where(entry),0.6,0.9,1,1,1,1) else tooltip:AddDoubleLine(label,where(entry),1,1,1,1,1,1) end
+    end
+    if #list>1 or (bags>0 and bank>0) then
+        tooltip:AddDoubleLine("Total",(bags>0 and ('Bags '..bags) or '')..((bags>0 and bank>0) and '   ' or '')..(bank>0 and ('Bank '..bank) or ''),0.3,1,0.6,0.3,1,0.6)
+    end
 end
 local tooltipInstalled=false
 local function HookTooltips()
@@ -664,6 +717,26 @@ function S.CreateProfessionPanel(host)
     local note=professionWindow:CreateFontString(nil,"OVERLAY","TrailboundMuted");note:SetPoint("BOTTOM",0,14);note:SetText("Confirmed trainer services")
     professionWindow:SetScript("OnShow",S.RefreshProfessions)
 end
+-- Class trainers must not pop the profession catalogue: it belongs to professions and profession trainers.
+function S.TrainerTeachesProfessions()
+    if not GetNumTrainerServices or not GetTrainerServiceInfo then return false end
+    local ok,count=pcall(GetNumTrainerServices)
+    if not ok or type(count)~='number' then return false end
+    for i=1,count do
+        local good,name,_,kind=pcall(GetTrainerServiceInfo,i)
+        if good and type(name)=='string' and (not issecretvalue or not issecretvalue(name)) and kind~='header' then
+            local category=S.TrainingCategory(name,i,false)
+            if category=='profession' or category=='professionUnknown' then return true end
+        end
+    end
+    return false
+end
+local function classTrainerOpen()
+    return ClassTrainerFrame and ClassTrainerFrame:IsShown() and not S.TrainerTeachesProfessions()
+end
+function S.TrainerOpened()
+    if professionWindow and professionWindow:IsShown() and not S.TrainerTeachesProfessions() then professionWindow:Hide() end
+end
 function S.ProfessionOptionChanged()
     if professionWindow and not getSettings().professionBook then professionWindow:Hide() end
     S.HookWindows()
@@ -683,7 +756,7 @@ function S.HookWindows()
     if host and host.HookScript and not professionHooks[host] then
         professionHooks[host]=true
         host:HookScript("OnShow",function(self)
-            if getSettings().professionBook then
+            if getSettings().professionBook and S.CurrentProfession() and not classTrainerOpen() then
                 S.RecordRecipes();S.CreateProfessionPanel(self)
                 professionWindow:SetParent(self);professionWindow:ClearAllPoints();professionWindow:SetPoint("TOPLEFT",self,"TOPRIGHT",65,-5)
                 local id=S.CurrentProfession();if id then selectedProfession=id end
@@ -743,7 +816,7 @@ f:SetScript("OnEvent",function(_,event,recipeID,recipeLevel,baseRecipeID)
         S.RecordRecipes()
         if event=="TRADE_SKILL_SHOW" then
             S.HookWindows()
-            if getSettings().professionBook then
+            if getSettings().professionBook and S.CurrentProfession() and not classTrainerOpen() then
                 local host=ProfessionsFrame or TradeSkillFrame or CraftFrame
                 S.CreateProfessionPanel(host)
                 if host then

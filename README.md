@@ -12,7 +12,7 @@ Open **`/tb`** or **`/trailbound`** to choose the features you want. The setting
 
 - Account gold totals and saved views of your characters' bags and banks.
 - Junk lists, vendor selling and manual removal of items from the junk list.
-- Bag movement from the header and reagent slots in the combined backpack, with a distinct colour for empty reagent slots.
+- Bag movement from the header and a reagent drawer flush under the combined backpack. Both can be switched off under **Bags, banks & vendors**.
 - Remembered full-name mail recipients.
 
 ### Quests, training and professions
@@ -26,7 +26,7 @@ Open **`/tb`** or **`/trailbound`** to choose the features you want. The setting
 ### Combat and recovery
 
 - Customizable weapon and wand swing timers with smooth progress.
-- Mana recovery and food/drink timers.
+- Mana recovery and food/drink timers, with an on-screen reminder when Well Fed has under two minutes left.
 - Buff and class reminders, plus timed notices for supported important buffs received from other players.
 - Configurable action rings with character-specific bindings and macros you can place on action bars.
 
@@ -83,3 +83,22 @@ Your settings, character records and remembered prices are saved by WoW under **
 Trailbound is being developed against the Forever beta. Client updates and other addons can affect individual features.
 
 When reporting a problem, include your Trailbound version (`/tb version`), the steps to reproduce it, any Lua error text, and a screenshot when the issue is visual. Mention other addons that modify the same window.
+
+## 1.8.61 additions
+- Lockboxes: right-click to pick in bags and trade; tooltips show the required Lockpicking skill.
+- Mage scrolls: right-click an untranslated "Scroll: ..." in your bags to decipher it with Comprehend Scroll.
+- Mage mana gem reminder (click to conjure) and a leveling Well Fed reminder (hidden at 60).
+- Junk manager opens when bags are full while looting, with a delete-lowest-value-and-loot button.
+- Warning at 3 free bag slots; five-second rule only for spells that cost mana.
+- Node icons: far cheaper scanning, placed where the client reports each node.
+- Chat defaults, click-through swing timer, external buff notices off by default.
+- Optional Trailbound bag window (off by default, Bags settings): search, sort and the reagent bag inside one window.
+
+## 1.8.68 additions
+- Flight times: reference times for most routes, exact learned times still win; estimates on the flight map tooltips.
+- Completed-quest XP in the XP tooltip is sorted highest first.
+- Profession catalogue no longer opens at class trainers; level times window shows days and is click-through unless Shift or edit mode.
+
+## 1.8.71
+- Item tooltips list bag and bank counts for this character and every other character on the account.
+- Auto-accept stops retrying quests the game refuses (e.g. full quest log).

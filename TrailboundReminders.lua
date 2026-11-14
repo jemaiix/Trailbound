@@ -1,5 +1,5 @@
 -- Additional reminder rules. All aura fields come through the restricted-aura guard.
-ForeverAssistReminders={Version='1.8.54'}
+ForeverAssistReminders={Version='1.8.71'}
 local R=ForeverAssistReminders
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local abilityCache,selectedCache={},{}
@@ -67,6 +67,37 @@ function R.PetReminder(auras)
   for _,a in ipairs(auras or {}) do if sacrificeAuras[a.spellId] then return end end
  end
  return {label='Summon demon',shortLabel='Pet',icon=136218}
+end
+ -- Mage mana gems: remind (and let the player click to conjure) the highest known rank when no gem is carried.
+local gemRanks={{27101,22044},{10054,8008},{10053,8007},{3552,5513},{759,5514}}
+local gemItems={22044,8008,8007,5513,5514}
+local function carryingGem()
+ local count=C_Item and C_Item.GetItemCount or GetItemCount
+ if not count then return true end
+ for _,id in ipairs(gemItems) do local ok,n=pcall(count,id,false);if ok and safe(n) and type(n)=='number' and n>0 then return true end end
+ return false
+end
+function R.ManaGemReminder()
+ local _,class=UnitClass('player');if class~='MAGE' then return end
+ for _,pair in ipairs(gemRanks) do
+  if known(pair[1]) then
+   if carryingGem() then return end
+   local name=spellName(pair[1]);if not name then return end
+   local info=C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(pair[1])
+   local icon=type(info)=='table' and safe(info.iconID) and info.iconID or (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(pair[2])) or 134400
+   return {label=name,shortLabel='Mana gem',icon=icon,spell=name,clickText='Click to conjure'}
+  end
+ end
+end
+-- Leveling reminder: no Well Fed buff below level 60. Not shown at the level cap.
+function R.WellFedReminder(auras)
+ local level=UnitLevel and UnitLevel('player');if not level or not safe(level) or level>=60 then return end
+ if IsResting and IsResting() then return end
+ local name=spellName(19705)
+ for _,a in ipairs(auras or {}) do if a.spellId==19705 or (name and a.name==name) then return end end
+ local info=C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(19705)
+ local icon=type(info)=='table' and safe(info.iconID) and info.iconID or 133950
+ return {label='No Well Fed buff',shortLabel='Well Fed',icon=icon}
 end
 local cities={[1453]=true,[1454]=true,[1455]=true,[1456]=true,[1457]=true,[1458]=true,[1947]=true,[1954]=true}
 local cityNames={['Stormwind City']=true,Stormwind=true,Ironforge=true,Darnassus=true,Orgrimmar=true,['Thunder Bluff']=true,Undercity=true,['The Exodar']=true,Exodar=true,['Silvermoon City']=true}

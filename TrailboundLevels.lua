@@ -1,11 +1,25 @@
 -- Character milestones use the server's /played counters, never wall-clock dates.
-ForeverAssistLevels={Version='1.8.54'}
+ForeverAssistLevels={Version='1.8.71'}
 local L=ForeverAssistLevels
 local character,settings,window,total,levelSeconds,sampledAt
 local function publicNumber(v)return (not issecretvalue or not issecretvalue(v))and type(v)=='number'and v>=0 end
 function L.Time(seconds)
  if not publicNumber(seconds)then return 'Waiting for /played'end
- seconds=math.floor(seconds);return ('%d:%02d:%02d'):format(math.floor(seconds/3600),math.floor(seconds/60)%60,seconds%60)
+ seconds=math.floor(seconds)
+ local days=math.floor(seconds/86400);local rest=seconds%86400
+ local clock=('%02d:%02d:%02d'):format(math.floor(rest/3600),math.floor(rest/60)%60,rest%60)
+ if days>0 then return ('%dd %s'):format(days,clock) end
+ return ('%d:%02d:%02d'):format(math.floor(rest/3600),math.floor(rest/60)%60,rest%60)
+end
+-- The window ignores the mouse (clicks fall through) unless Shift is held or the layout edit mode is on.
+function L.UpdateMouse()
+ if not window or InCombatLockdown()then return end
+ local on=(IsShiftKeyDown and IsShiftKeyDown())or(ForeverAssistLayout and ForeverAssistLayout.active)or false
+ on=on and true or false
+ if window:IsMouseEnabled()~=on then
+  window:EnableMouse(on)
+  if not on and GameTooltip:GetOwner()==window then GameTooltip:Hide()end
+ end
 end
 function L.Apply()
  if not character or not window then return end
@@ -17,7 +31,7 @@ function L.Apply()
  L.Refresh()
 end
 local function create()
- window=CreateFrame('Frame','ForeverAssistLevelTimes',UIParent,'BackdropTemplate');window:SetWidth(230);window:SetClampedToScreen(true);window:SetMovable(true);window:EnableMouse(true);window:RegisterForDrag('LeftButton')
+ window=CreateFrame('Frame','ForeverAssistLevelTimes',UIParent,'BackdropTemplate');window:SetWidth(230);window:SetClampedToScreen(true);window:SetMovable(true);window:EnableMouse(false);window:RegisterForDrag('LeftButton')
  TrailboundTheme.Panel(window,true)
  window:SetScript('OnDragStart',function(self)if not InCombatLockdown()then self:StartMoving()end end)
  window:SetScript('OnDragStop',function(self)
@@ -36,10 +50,11 @@ local function create()
  end
  window.played=text('TrailboundSmall',10,-60,210);window.current=text('TrailboundSmall',10,-80,210)
  window.note=text('TrailboundMuted',10,-100,210)
- window:SetScript('OnEnter',function(self)GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:AddLine('Drag to move. Milestones are total /played when each level began.');GameTooltip:Show()end)
+ window:SetScript('OnEnter',function(self)GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:AddLine('Hold Shift to drag. Milestones are total /played when each level began.');GameTooltip:Show()end)
  window:SetScript('OnLeave',function()GameTooltip:Hide()end)
 end
 function L.Refresh()
+ L.UpdateMouse()
  if not character or not window then return end
  local level=UnitLevel('player');if not publicNumber(level)or level<1 then return end
  local known={}
@@ -83,6 +98,7 @@ function L.Initialize(db,get)
  total,levelSeconds,sampledAt=nil,nil,nil
  if not window then create()end;L.Apply()
 end
+local mouseEvents=CreateFrame('Frame');mouseEvents:RegisterEvent('MODIFIER_STATE_CHANGED');mouseEvents:RegisterEvent('PLAYER_REGEN_ENABLED');mouseEvents:SetScript('OnEvent',function()L.UpdateMouse()end)
 local frame=CreateFrame('Frame')
 for _,event in ipairs({'TIME_PLAYED_MSG','PLAYER_LEVEL_UP','PLAYER_REGEN_ENABLED'})do frame:RegisterEvent(event)end
 frame:SetScript('OnEvent',L.Event)

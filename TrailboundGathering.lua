@@ -1,9 +1,11 @@
 -- Live minimap-tooltip observations only; never enumerate hidden world objects.
-ForeverAssistGathering={Version='1.8.54'}
+ForeverAssistGathering={Version='1.8.71'}
 local G=ForeverAssistGathering
 local settings,character,options
 local icons,glows={},{}
-local grid,index,hits,geometry={},1,{},nil
+local grid,index,hits={},1,{}
+local geometryW,geometryH,geometrySquare,restUntil
+restUntil=0
 local probeTooltip
 local pinned={}
 G.diagnostics={scans=0,probes=0,matched=0,shown=0}
@@ -57,22 +59,7 @@ function G.Screen(x,y,v)
  local east,north=x-v.x,v.y-y
  return v.width/2+(east*v.c+north*v.s)*v.width/(2*v.radius),v.height/2+(-east*v.s+north*v.c)*v.height/(2*v.radius)
 end
-function G.Follow(view)
- if combat()then return end
- view=view or G.View()
- for _,icon in ipairs(icons)do
-  local pin=icon.pin
-  if pin then
-   if not view or pin.map~=view.map then icon:Hide()
-   else
-    local x,y=G.Screen(pin.x,pin.y,view)
-    local inside=x>=7 and y>=7 and x<=view.width-7 and y<=view.height-7
-    if settings and not settings().squareMinimap then inside=inside and (x-view.width/2)^2+(y-view.height/2)^2<=(math.min(view.width,view.height)/2-7)^2 end
-    icon:ClearAllPoints();icon:SetPoint('CENTER',Minimap,'BOTTOMLEFT',x,y);icon:SetShown(inside and settings().gatherNodeIcons~=false)
-   end
-  end
- end
-end
+function G.Follow() end
 function G.Resolve(name)
  if not safe(name)or type(name)~='string'then return end
  name=name:gsub('|T.-|t',''):gsub('|A.-|a',''):gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r',''):match('^%s*(.-)%s*$');return aliases[name]
@@ -117,7 +104,7 @@ local function tooltipData()
  end
  probeTooltip:Hide();G.diagnostics.reader='GameTooltip';return {lines=lines}
 end
-function G.Record(data,x,y,view)
+function G.Record(data,x,y)
  if not publicTable(data)or not publicTable(data.lines)then return end
  for _,line in ipairs(data.lines)do
   if publicTable(line)then
@@ -131,11 +118,7 @@ function G.Record(data,x,y,view)
     G.diagnostics.matched=G.diagnostics.matched+1
     local duplicate=false
     for _,hit in ipairs(hits)do if hit.row==row and hit.x==x and hit.y==y then duplicate=true;break end end
-    if not duplicate then
-     local hit={row=row,x=x,y=y}
-     if view then hit.map=view.map;hit.wx,hit.wy=G.World(x,y,view)end
-     hits[#hits+1]=hit
-    end
+    if not duplicate then hits[#hits+1]={row=row,x=x,y=y} end
    end
    end
    end
@@ -163,16 +146,19 @@ function G.Cluster(points)
  return result
 end
 function G.Render()
- local view=G.View();local points={}
- for _,hit in ipairs(hits)do
-  if hit.map and view and hit.map==view.map then
-   local x,y=G.Screen(hit.wx,hit.wy,view);points[#points+1]={row=hit.row,x=x,y=y}
-  elseif not hit.map then points[#points+1]=hit end
- end
- local nodes=G.Cluster(points);local nextPins,used={},{}
- G.diagnostics.scans=G.diagnostics.scans+1;G.diagnostics.shown=#nodes
- G.status=#nodes>0 and 'Node icons active'or 'No recognized nodes in last scan'
+ G.lastClusters=G.Cluster(hits)
+ G.diagnostics.scans=G.diagnostics.scans+1
+ G.Present()
+end
+-- Draw the minimap icons and fill the nearby list from the last scan, applying the filters.
+function G.Present()
+ if not settings then return end
+ local c=settings()
  local skills=G.Skills()
+ local nodes=G.lastClusters or {}
+ G.diagnostics.shown=#nodes
+ G.status=#nodes>0 and 'Node icons active'or 'No recognized nodes in last scan'
+ local showIcons=c.gatherNodeIcons~=false
  for i,hit in ipairs(nodes)do
   local icon=icons[i]
   if not icon then
@@ -187,66 +173,59 @@ function G.Render()
    icons[i]=icon
   end
   local row=hit.row;local texture=C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(row[2])or 134400
-  icon.pin=nil
-  if view then
-   local wx,wy=G.World(hit.x,hit.y,view);local chosen,best
-   local reach=(12*2*view.radius/view.width)^2
-   for j,pin in ipairs(pinned)do
-    if not used[j]and pin.map==view.map and pin.row==row then
-     local distance=(pin.x-wx)^2+(pin.y-wy)^2
-     if distance<=reach and (not best or distance<best)then chosen,best=j,distance end
-    end
-   end
-   local pin=chosen and pinned[chosen]or {map=view.map,x=wx,y=wy,row=row}
-   if chosen then used[chosen]=true end
-   nextPins[#nextPins+1]=pin;icon.pin=pin
-  end
   icon.texture:SetTexture(texture or 134400)
   local low=G.TooLow(row,skills);icon.texture:SetVertexColor(1,low and .2 or 1,low and .2 or 1);icon.ring:SetVertexColor(1,low and .1 or .8,low and .1 or .2,1)
-  icon:ClearAllPoints();icon:SetPoint('CENTER',Minimap,'BOTTOMLEFT',hit.x,hit.y);icon:Show()
+  icon:ClearAllPoints();icon:SetPoint('CENTER',Minimap,'BOTTOMLEFT',hit.x,hit.y);icon:SetShown(showIcons)
  end
  for i=#nodes+1,#icons do icons[i]:Hide()end
- for i=#nodes+1,#icons do icons[i].pin=nil end
- pinned=nextPins;G.Follow(view)
+ G.nodesFound=#nodes
 end
+local batchData,batchX,batchY={}, {}, {}
+local STEP_PROBES=36
 function G.Scan()
  if not settings then G.status='Not initialized';return end
  if combat()then G.status='Paused in combat';hideIcons();return end
  if settings().gatherNodeIcons==false then G.status='Node icons disabled in options';hideIcons();return end
  if not Minimap or not Minimap:IsShown()then G.status='Minimap hidden';hideIcons();return end
- if not Minimap.UpdateMouseoverAtPoint then G.status='Minimap probing API unavailable';hideIcons();return end
+ if UnitOnTaxi and UnitOnTaxi('player')then G.status='Paused on flight path';return end
+ local update=Minimap.UpdateMouseoverAtPoint
+ if not update then G.status='Minimap probing API unavailable';hideIcons();return end
  if MouseIsOver and MouseIsOver(Minimap)then G.status='Paused while mouse is over minimap';index=1;hits={};return end
  local width,height=Minimap:GetWidth(),Minimap:GetHeight();local scale=Minimap:GetEffectiveScale();local left,bottom=Minimap:GetLeft(),Minimap:GetBottom()
  if not left or not bottom or width<=0 or height<=0 then return end
- local key=width..':'..height..':'..tostring(settings().squareMinimap)
- if key~=geometry then
-  grid={};index=1;hits={};geometry=key
+ local square=settings().squareMinimap
+ if width~=geometryW or height~=geometryH or square~=geometrySquare then
+  grid={};index=1;hits={};geometryW,geometryH,geometrySquare=width,height,square
   for y=4,height-4,8 do for x=4,width-4,8 do
-   if settings().squareMinimap or (x-width/2)^2+(y-height/2)^2<=(math.min(width,height)/2-2)^2 then grid[#grid+1]={x,y}end
+   if square or (x-width/2)^2+(y-height/2)^2<=(math.min(width,height)/2-2)^2 then grid[#grid+1]={x,y}end
   end end
  end
  local soft=Minimap.SetUsingSoftCursor
  if not soft then G.status='Minimap soft cursor API unavailable';hideIcons();return end
  local enabled=pcall(soft,Minimap,true)
  if not enabled then pcall(soft,Minimap,false);G.status='Minimap soft cursor rejected by client';hideIcons();return end
- local batch,failed={},false;local view=G.View()
- for _=1,48 do
+ local count,failed=0,false
+ for _=1,STEP_PROBES do
   local point=grid[index];if not point then break end
-  local ok,data=pcall(function()
-   Minimap:UpdateMouseoverAtPoint((left+point[1])*scale,(bottom+point[2])*scale)
-   return tooltipData()
-  end)
-  if not ok then failed=true;break end
+  if not pcall(update,Minimap,(left+point[1])*scale,(bottom+point[2])*scale)then failed=true;break end
   G.diagnostics.probes=G.diagnostics.probes+1
-  batch[#batch+1]={data=data,x=point[1],y=point[2]}
+  local data=tooltipData()
+  -- Most probes hit nothing; only keep the ones that returned tooltip lines.
+  if data and data.lines and #data.lines>0 then count=count+1;batchData[count]=data;batchX[count]=point[1];batchY[count]=point[2]end
   index=index+1
  end
  -- Release before processing data or rendering, including failed native calls.
  pcall(soft,Minimap,false)
- if GetCursorPosition then local x,y=GetCursorPosition();pcall(Minimap.UpdateMouseoverAtPoint,Minimap,x,y)end
+ if GetCursorPosition then local x,y=GetCursorPosition();pcall(update,Minimap,x,y)end
  if failed then G.status='Minimap probing rejected by client';index=1;hits={};hideIcons();return end
- for _,sample in ipairs(batch)do G.Record(sample.data,sample.x,sample.y,view)end
- if not grid[index]then G.Render();index=1;hits={}end
+ for i=1,count do G.Record(batchData[i],batchX[i],batchY[i]);batchData[i]=nil end
+ if not grid[index]then
+  G.Render();index=1;hits={}
+  -- Sweep again quickly while moving over nodes; back off when nothing is around.
+  local moving=GetUnitSpeed and (GetUnitSpeed('player') or 0)>0
+  local rest=(G.nodesFound or 0)>0 and (moving and .1 or .8) or (moving and 1 or 2)
+  restUntil=GetTime()+rest
+ end
 end
 function G.Debug()
  local d=G.diagnostics
@@ -279,7 +258,7 @@ function G.ApplySettings()
   end
  end
  if settings().gatherSparkles==false then hideGlows()end
- if settings().gatherNodeIcons==false then hideIcons()end
+ G.Present()
 end
 function G.Sparkles()
  if not settings or combat()or settings().gatherSparkles==false or not C_NamePlate or not C_NamePlate.GetNamePlates or not UnitIsGameObject then hideGlows();return end
@@ -295,8 +274,9 @@ function G.Sparkles()
      if not glow then
       glow=CreateFrame('Frame');glow:SetParent(plate);glow:SetSize(130,120);glow:SetPoint('CENTER',plate,'BOTTOM',0,-85);glow:EnableMouse(false);glow.parts={}
       for i=1,20 do local t=glow:CreateTexture(nil,'OVERLAY');t:SetTexture('Interface/CastingBar/UI-CastingBar-Spark');t:SetSize(12+i%3*3,20+i%4*3);t:SetVertexColor(1,.9,.45);if t.SetBlendMode then t:SetBlendMode('ADD')end;glow.parts[i]=t end
-      glow:SetScript('OnUpdate',function(self)
+      glow:SetScript('OnUpdate',function(self,dt)
        if combat()then self:Hide();return end
+       self.wait=(self.wait or 0)+dt;if self.wait<.033 then return end;self.wait=0
        local now=GetTime()
        for i,t in ipairs(self.parts)do local phase=now*.7+i*2.39996;t:ClearAllPoints();t:SetPoint('CENTER',self,'CENTER',math.sin(phase)*54,math.cos(phase*1.37)*48);t:SetAlpha(.3+.7*(1+math.sin(phase*2.8))/2)end
       end);glows[plate]=glow
@@ -337,7 +317,9 @@ local scanElapsed,glowElapsed=0,0
 frame:SetScript('OnUpdate',function(_,dt)
  if not settings then return end
  scanElapsed=scanElapsed+dt;glowElapsed=glowElapsed+dt
- if not combat()and settings().gatherNodeIcons~=false then G.Follow()end
- if scanElapsed>=.02 then scanElapsed=0;G.Scan()end
- if glowElapsed>=.2 then glowElapsed=0;G.Sparkles()end
+ if scanElapsed>=.05 then
+  scanElapsed=0
+  if GetTime()>=restUntil and not combat()and settings().gatherNodeIcons~=false then G.Scan()end
+ end
+ if glowElapsed>=.5 then glowElapsed=0;G.Sparkles()end
 end)

@@ -1,10 +1,21 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.54'
+ForeverAssistPlay.Version='1.8.71'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
 local function combat() return InCombatLockdown and InCombatLockdown() end
+-- Compact numbers for the XP bar: 4,500 -> 4.5K, 123,456 -> 123K, 1,250,000 -> 1.25M.
+local function short(n)
+ n=tonumber(n) or 0
+ local sign=n<0 and '-' or '';n=math.abs(n)
+ local s
+ if n>=1000000 then s=('%.2f'):format(n/1000000):gsub('%.?0+$','')..'M'
+ elseif n>=100000 then s=('%.0fK'):format(n/1000)
+ elseif n>=1000 then s=('%.1f'):format(n/1000):gsub('%.0$','')..'K'
+ else s=('%d'):format(n) end
+ return sign..s
+end
 local function duration(n) n=math.max(0,math.floor(n or 0));return ('%dh %02dm %02ds'):format(math.floor(n/3600),math.floor(n/60)%60,n%60) end
 local function text(parent) return parent:CreateFontString(nil,'OVERLAY','TrailboundSmall') end
 local function button(parent,label,x,y,w,fn)
@@ -148,6 +159,18 @@ end
 function P.RememberRecipient(name)
  if type(name)~='string' then return end;name=name:match('^%s*(.-)%s*$');if name=='' then return end
  local realm=GetRealmName();account.mailRecipients[realm]=account.mailRecipients[realm] or {};account.mailRecipients[realm][name]=true
+ account.lastMailTo=account.lastMailTo or {};account.lastMailTo[realm]=name
+end
+-- Fill the address box with the last mailed character, only into an empty box: anything typed,
+-- or cleared, by the player is never overwritten.
+function P.PrefillMail()
+ local input=SendMailNameEditBox
+ if not input or not account or settings().mailPrefill==false then return end
+ local last=account.lastMailTo and account.lastMailTo[GetRealmName()]
+ if type(last)~='string' or last=='' then return end
+ local current=input:GetText()
+ if type(current)=='string' and current~='' then return end
+ input:SetText(last);if input:HasFocus() then input:HighlightText() end
 end
 function P.MailMenu()
  if not mailWindow then mailWindow=window('ForeverAssistMailRecipients','Remembered mail recipients',320,360);mailRows={} end
@@ -165,6 +188,12 @@ local mailButton
 local function hookMail()
  local send=SendMailFrame
  if not send then return end
+ if not send.tbPrefillHooked then
+  send.tbPrefillHooked=true
+  send:HookScript('OnShow',function() P.PrefillMail() end)
+  if SendMailFrame_Reset then hooksecurefunc('SendMailFrame_Reset',function() P.PrefillMail() end) end
+  P.PrefillMail()
+ end
  local header=MailFrame and MailFrame:IsShown() and MailFrame or send
  if not mailButton then
   local b=CreateFrame('Button','ForeverAssistMailRecipientsButton',UIParent,'BackdropTemplate');mailButton=b
@@ -232,6 +261,11 @@ function P.QuestXP()
    rows[#rows+1]={name=q.title or tostring(q.questID),xp=xp,id=q.questID}
   end
  end
+ -- Highest XP first; rewards the client hasn't loaded yet go last.
+ table.sort(rows,function(a,b)
+  if (a.xp or -1)~=(b.xp or -1) then return (a.xp or -1)>(b.xp or -1) end
+  return tostring(a.name)<tostring(b.name)
+ end)
  return rows,total,unknown
 end
 local xpFrame,xpFill,questFill,restFill,xpLabels,sessionStart,sessionXP= nil,nil,nil,nil,nil,0,0
@@ -430,7 +464,7 @@ function P.UpdateXP()
  local elapsed=GetTime()-sessionStart;local rate=elapsed>0 and sessionXP*3600/elapsed or 0;local eta=rate>0 and duration((max-x)*3600/rate) or 'estimating'
  local playedElapsed=playedAt and GetTime()-playedAt or 0
  xpFrame.details=(('Level %d: %.1f%%  |  Needed %.1f%%  |  Rested %.1f%%\nCompleted quests: %s XP (%.1f%%)%s\nXP/hour %.0f  |  Level in %s  |  Session %s / %d XP\nPlayed this level %s  |  Total played %s'):format(UnitLevel('player'),x/max*100,(max-x)/max*100,rest/max*100,questTotal,questTotal/max*100,questUnknown>0 and (' + '..questUnknown..' unknown') or '',rate,eta,duration(elapsed),sessionXP,playedLevel and duration(playedLevel+(levelPlayedAt and GetTime()-levelPlayedAt or playedElapsed)) or 'pending',playedTotal and duration(playedTotal+playedElapsed) or 'pending'))
- xpLabels:SetText(('%d / %d (%d)'):format(x,max,max-x))
+ xpLabels:SetText(('%s / %s (%s)'):format(short(x),short(max),short(max-x)))
  xpFrame.levelLabel:SetText(('Level %d'):format(UnitLevel('player')))
  xpFrame.percentLabel:SetText(('%.1f%% (%.1f%%)'):format(x/max*100,(max-x)/max*100))
  xpFrame.levelTimeLabel:SetText('Time this level: '..(playedLevel and duration(playedLevel+(levelPlayedAt and GetTime()-levelPlayedAt or playedElapsed)) or 'pending'))
@@ -438,13 +472,13 @@ function P.UpdateXP()
  xpFrame.bonusLabel:SetText(('Completed: %.0f%% • Rested: %.0f%%'):format(questTotal/max*100,rest/max*100))
  local kills,average,count=P.MobEstimate(max-x)
  local killText=kills and ('~%d mobs to level'):format(kills) or 'Mobs: estimating'
- xpFrame.rateLabel:SetText(('Level in %s • %.0f XP/hour • %s'):format(eta,rate,killText))
+ xpFrame.rateLabel:SetText(('Level in %s • %s XP/hour • %s'):format(eta,short(rate),killText))
  if kills then xpFrame.details=xpFrame.details..('\nRecent kills: %.0f XP/mob over %d kills • ~%d mobs to level'):format(average,count,kills) end
 end
 -- Native Forever swing events, main-hand / off-hand / ranged (including wand autos).
 local swingFrame,swingBars,swingEnds,swingDurations=nil,{}, {},{}
 local function createSwings()
- swingFrame=CreateFrame('Frame','ForeverAssistSwings',UIParent);position(swingFrame,'swingPosition',0,-140);movable(swingFrame,'swingPosition')
+ swingFrame=CreateFrame('Frame','ForeverAssistSwings',UIParent);position(swingFrame,'swingPosition',0,-140);movable(swingFrame,'swingPosition');swingFrame:EnableMouse(false)
  for i,label in ipairs({'Main hand','Off hand','Ranged'}) do
   local b=CreateFrame('StatusBar',nil,swingFrame);b:SetStatusBarTexture('Interface/TargetingFrame/UI-StatusBar');b:SetStatusBarColor(.95,.7,.15);b:SetPoint('TOPLEFT',0,-(i-1)*22)
   local bg=b:CreateTexture(nil,'BACKGROUND');bg:SetAllPoints();bg:SetColorTexture(.06,.06,.06,.75);b.bg=bg;b.label=text(b);b.label:SetPoint('CENTER');b.caption=label;swingBars[i]=b;b:Hide()
@@ -475,7 +509,7 @@ local function updateSwings()
    elseif nativeSwingState[native] then native:SetShown(nativeSwingState[native].shown);nativeSwingState[native]=nil end
   end
  end
- swingFrame:SetFrameStrata(P.swingUnlocked and 'TOOLTIP' or 'MEDIUM')
+ swingFrame:SetFrameStrata(P.swingUnlocked and 'TOOLTIP' or 'MEDIUM');swingFrame:EnableMouse(P.swingUnlocked==true)
  local c=settings();local w=c.swingWidth or 240;local h=c.swingHeight or 18;local gap=c.swingGap or 4;swingFrame:SetSize(w,3*(h+gap))
  local colors={{.95,.7,.15},{.15,.8,.65},{.3,.65,1},{.85,.35,.8}};local color=colors[c.swingColor or 1] or colors[1]
  swingFrame:SetAlpha(c.swingOpacity or 1)
@@ -556,98 +590,291 @@ local function hookTrainer()
 end
 -- Only the title strip receives drag input; item and utility buttons stay native.
 local bagFrameNames={'ContainerFrameCombinedBags','ContainerFrame1','ContainerFrame2','ContainerFrame3','ContainerFrame4','ContainerFrame5','ContainerFrame6'}
+local bagMoveApplied,reagentBroken,reagentWas=false,false,nil
+local function reagentOn() return settings().combinedReagents~=false and not reagentBroken end
+-- Saved offsets are in UIParent units; SetPoint offsets use the frame's own scale,
+-- so convert on apply or bags drift whenever their scale differs from the UI scale.
 function P.ApplyBagPositions()
  if combat() or not settings().moveBags then return end
+ local positions=settings().bagPositions
+ if type(positions)~='table' then return end
+ local uiScale=UIParent:GetEffectiveScale()
+ local ux,uy=UIParent:GetCenter()
  for _,name in ipairs(bagFrameNames) do
-  local f=_G[name];local p=settings().bagPositions and settings().bagPositions[name]
-  if f and p and not f.faDragging then
-   f:SetMovable(true);if f.SetUserPlaced then f:SetUserPlaced(true) end
-   f:ClearAllPoints();f:SetPoint('CENTER',UIParent,'CENTER',p[1],p[2])
+  local f=_G[name];local p=positions[name]
+  if f and type(p)=='table' and type(p[1])=='number' and type(p[2])=='number' and not f.faDragging then
+   local scale=f.GetEffectiveScale and f:GetEffectiveScale() or uiScale
+   if not scale or scale<=0 then scale=uiScale end
+   local cx,cy=f:GetCenter()
+   local lift=f.tbLift or 0
+   local py=p[2]+lift*scale/uiScale
+   local inPlace=cx and cy and ux and math.abs(cx*scale/uiScale-ux-p[1])<.5 and math.abs(cy*scale/uiScale-uy-py)<.5
+   if not inPlace then
+    f:SetMovable(true);f:ClearAllPoints();f:SetPoint('CENTER',UIParent,'CENTER',p[1]*uiScale/scale,py*uiScale/scale)
+   end
+   bagMoveApplied=true
   end
  end
 end
 function P.ResetBags()
  if combat() then return end
- settings().bagPositions={}
+ settings().bagPositions={};bagMoveApplied=false
  for _,name in ipairs(bagFrameNames) do local f=_G[name];if f and f.SetUserPlaced then f:SetUserPlaced(false) end end
  if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end
 end
 local function hookBags()
  if combat() then return end
- P.HookCombinedReagents()
- local combined=ContainerFrameCombinedBags
- if combined and combined.tbReagentsPending and ContainerFrame_GenerateFrame then
-  combined.tbReagentsPending=nil
-  if combined:IsShown() then ContainerFrame_GenerateFrame(combined,0,0) end
+ P.HookReagentPanel()
+ local want=reagentOn()
+ if reagentWas~=nil and reagentWas~=want then P.UpdateReagentPanel() end
+ reagentWas=want
+ -- Turning movement off hands the bags back to the native layout straight away.
+ if not settings().moveBags and bagMoveApplied then
+  bagMoveApplied=false
+  if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end
  end
  for _,name in ipairs(bagFrameNames) do
   local f=_G[name]
   if f and not f.faMoveHandle then
    local h=CreateFrame('Button',nil,f);f.faMoveHandle=h;h:SetPoint('TOPLEFT',f,'TOPLEFT',48,-4);h:SetPoint('TOPRIGHT',f,'TOPRIGHT',-32,-4);h:SetHeight(23);h:SetFrameLevel(f:GetFrameLevel()+2);h:EnableMouse(true)
    h:RegisterForDrag('LeftButton')
-   h:SetScript('OnDragStart',function() if settings().moveBags and not combat() then f.faDragging=true;f:SetMovable(true);f:SetClampedToScreen(true);if f.SetUserPlaced then f:SetUserPlaced(true) end;f:StartMoving() end end)
+   h:SetScript('OnDragStart',function() if settings().moveBags and not combat() then f.faDragging=true;f:SetMovable(true);f:SetClampedToScreen(true);f:StartMoving() end end)
    h:SetScript('OnDragStop',function()
-    f:StopMovingOrSizing();f.faDragging=false;local x,y=f:GetCenter();local ux,uy=UIParent:GetCenter();settings().bagPositions=settings().bagPositions or {}
-    if x and ux then local scale=f.GetEffectiveScale and f:GetEffectiveScale() or 1;local base=UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1;settings().bagPositions[name]={x*scale/base-ux,y*scale/base-uy} end
+    f:StopMovingOrSizing();f.faDragging=false
+    -- Trailbound saves the position itself; keep the client from also persisting it.
+    if f.SetUserPlaced then f:SetUserPlaced(false) end
+    local x,y=f:GetCenter();local ux,uy=UIParent:GetCenter()
+    if x and ux then
+     local scale=f.GetEffectiveScale and f:GetEffectiveScale() or 1;local base=UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+     settings().bagPositions=settings().bagPositions or {};settings().bagPositions[name]={x*scale/base-ux,y*scale/base-uy-(f.tbLift or 0)*scale/base}
+    end
     P.ApplyBagPositions()
    end)
    f:HookScript('OnShow',function() h:SetShown(settings().moveBags and f:IsShown());P.ApplyBagPositions() end)
-   f:HookScript('OnHide',function() h:Hide() end)
+   -- A bag closed mid-drag never delivers OnDragStop; finish the move here.
+   f:HookScript('OnHide',function() h:Hide();if f.faDragging then f:StopMovingOrSizing();f.faDragging=false;if f.SetUserPlaced then f:SetUserPlaced(false) end end end)
   end
   if f and f.faMoveHandle then f.faMoveHandle:SetShown(settings().moveBags and f:IsShown()) end
  end
  P.ApplyBagPositions()
 end
--- Extend the native pool rather than manufacture replacement item actions.
-function P.HookCombinedReagents()
- local f=ContainerFrameCombinedBags;local manager=ContainerFrameSettingsManager
- if combat() or not f or not manager or f.tbReagentsHooked then return end
- if type(f.AcquireNewItemButton)~='function' or type(f.UpdateItemSlots)~='function' or type(manager.IsUsingCombinedBags)~='function' then return end
- f.tbReagentsHooked=true
- local reagent=Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag or 5
- local nativeCombined=manager.IsUsingCombinedBags
- manager.IsUsingCombinedBags=function(self,id)
-  if id==reagent then return nativeCombined(self) end
-  return nativeCombined(self,id)
- end
- local matches=f.MatchesBagID
- if matches then f.MatchesBagID=function(self,id) if id==reagent then return manager:IsUsingCombinedBags() end;return matches(self,id) end end
- local isOpen=f.IsBagOpen
- if isOpen then f.IsBagOpen=function(self,id) if id==reagent and manager:IsUsingCombinedBags() and self:IsShown() then return id end;return isOpen(self,id) end end
- hooksecurefunc(f,'SetBagSize',function(self)
-  if not combat() and manager:IsUsingCombinedBags() then
-   local total=0
-   for bag=0,reagent do total=total+(ContainerFrame_GetContainerNumSlots and ContainerFrame_GetContainerNumSlots(bag) or C_Container.GetContainerNumSlots(bag)) end
-   self.size=total
-  end
- end)
- hooksecurefunc(f,'UpdateItemSlots',function(self)
-  if combat() then self.tbReagentsPending=true;return end
-  if not manager:IsUsingCombinedBags() then return end
-  local found={}
-  for _,item in ipairs(self.Items or {}) do if item:GetBagID()==reagent then found[item:GetID()]=true end end
-  for slot=1,C_Container.GetContainerNumSlots(reagent) do
-   if not found[slot] then self:AcquireNewItemButton():Initialize(reagent,slot) end
-  end
- end)
- local function tint(self)
-  for _,item in ipairs(self.Items or {}) do
-   local empty=manager:IsUsingCombinedBags() and item:GetBagID()==reagent and not C_Container.GetContainerItemInfo(reagent,item:GetID())
-   if empty and not item.tbReagentEmpty and not combat() then
-    local t=item:CreateTexture(nil,'BACKGROUND',nil,1);t:SetAllPoints(item);t:SetColorTexture(.18,.52,.45,.55);item.tbReagentEmpty=t
-   end
-   if item.tbReagentEmpty then item.tbReagentEmpty:SetShown(empty) end
-  end
- end
- if type(f.UpdateItems)=='function' then hooksecurefunc(f,'UpdateItems',tint) end
- hooksecurefunc(f,'UpdateItemSlots',tint)
- f:HookScript('OnShow',function() if not combat() then tint(f) end end)
- if manager.MarkBagSetupDirty then manager:MarkBagSetupDirty() end
- -- Reopen through native routing once, to clear a separately open reagent bag.
- local separate=ContainerFrame6
- if manager:IsUsingCombinedBags() and separate and separate:IsShown() and separate.GetID and separate:GetID()==reagent then separate:Hide() end
- if f:IsShown() and ContainerFrame_GenerateFrame then ContainerFrame_GenerateFrame(f,0,0) end
+-- The native combined bag never includes the reagent bag, and forcing it in corrupts
+-- Blizzard's own slot list (it broke ContainerFrame.lua when the bag closed). Instead the
+-- reagent bag gets its own window beside the combined bag, built on Blizzard's portrait frame
+-- chrome (same border, title bar and background) with slots sized and spaced like the bag's. The
+-- combined frame's chrome cannot be resized from an addon, so the slots are not squeezed into it.
+-- It only uses the public container API; no Blizzard method is replaced.
+local reagentButtons,reagentEvents,reagentPanel,reagentGrowing={},nil,nil,false
+local REAGENT_BAG=(Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag) or 5
+local function clean(v) if issecretvalue and issecretvalue(v) then return nil end;return v end
+local reagentDismissed,reagentHiding=false,false
+local function hideReagentWindow()
+ reagentHiding=true
+ if reagentPanel then reagentPanel:Hide() end
+ reagentHiding=false
 end
+function P.ClearReagents()
+ for _,b in ipairs(reagentButtons) do b:Hide() end
+ hideReagentWindow()
+ local f=ContainerFrameCombinedBags
+ if f and (f.tbLift or 0)>0 then f.tbLift=0;if UpdateContainerFrameAnchors and not combat() then UpdateContainerFrameAnchors() end end
+end
+-- Runs right after the client anchors the bags: raise the combined bag by the drawer height.
+function P.LiftForReagents()
+ local f=ContainerFrameCombinedBags
+ local lift=f and f.tbLift or 0
+ if lift<=0 or combat() or not f:IsShown() then return end
+ local saved=settings().moveBags and type(settings().bagPositions)=='table' and settings().bagPositions[f:GetName()]
+ if saved then return end
+ if f:GetNumPoints()~=1 then return end
+ local point,rel,relPoint,x,y=f:GetPoint(1)
+ if point and type(y)=='number' then f:SetPoint(point,rel,relPoint,x,y+lift) end
+end
+local function reagentFailed(err)
+ if reagentBroken then return end
+ reagentBroken=true
+ P.ClearReagents()
+ say('The reagent slots were switched off after an error and will return after /reload: '..tostring(err))
+end
+local function reagentTooltip(self)
+ if not self.hasItem then return end
+ GameTooltip:SetOwner(self,'ANCHOR_RIGHT')
+ if pcall(GameTooltip.SetBagItem,GameTooltip,REAGENT_BAG,self.slot) then GameTooltip:Show() else GameTooltip:Hide() end
+end
+local function reagentClick(self,mouse)
+ if combat() then return end
+ local C=C_Container
+ if mouse=='RightButton' then pcall(C.UseContainerItem,REAGENT_BAG,self.slot);return end
+ if self.hasItem then
+  local link=C.GetContainerItemLink and C.GetContainerItemLink(REAGENT_BAG,self.slot)
+  if link and HandleModifiedItemClick and HandleModifiedItemClick(link) then return end
+  if self.count and self.count>1 and IsModifiedClick and IsModifiedClick('SPLITSTACK') and StackSplitFrame and StackSplitFrame.OpenStackSplitFrame then
+   self.SplitStack=function(btn,amount) C.SplitContainerItem(REAGENT_BAG,btn.slot,amount) end
+   StackSplitFrame:OpenStackSplitFrame(self.count,self,'BOTTOMRIGHT','TOPRIGHT');return
+  end
+ end
+ pcall(C.PickupContainerItem,REAGENT_BAG,self.slot)
+end
+local function reagentSlot(parent,slot)
+ local b=CreateFrame('Button',nil,parent);b.slot=slot
+ b.edge=b:CreateTexture(nil,'BACKGROUND');b.edge:SetAllPoints()
+ b.fill=b:CreateTexture(nil,'BORDER');b.fill:SetPoint('TOPLEFT',2,-2);b.fill:SetPoint('BOTTOMRIGHT',-2,2)
+ b.icon=b:CreateTexture(nil,'ARTWORK');b.icon:SetPoint('TOPLEFT',2,-2);b.icon:SetPoint('BOTTOMRIGHT',-2,2)
+ b.countText=b:CreateFontString(nil,'OVERLAY','NumberFontNormal');b.countText:SetPoint('BOTTOMRIGHT',-3,3)
+ b.cooldown=CreateFrame('Cooldown',nil,b,'CooldownFrameTemplate');b.cooldown:SetAllPoints(b.icon)
+ b:RegisterForClicks('LeftButtonUp','RightButtonUp');b:RegisterForDrag('LeftButton')
+ b:SetScript('OnClick',reagentClick);b:SetScript('OnDragStart',function(self) if not combat() then pcall(C_Container.PickupContainerItem,REAGENT_BAG,self.slot) end end)
+ b:SetScript('OnReceiveDrag',function(self) if not combat() then pcall(C_Container.PickupContainerItem,REAGENT_BAG,self.slot) end end)
+ b:SetScript('OnEnter',reagentTooltip);b:SetScript('OnLeave',function() GameTooltip:Hide() end)
+ return b
+end
+local function minStep(list)
+ table.sort(list);local step
+ for i=2,#list do local d=list[i]-list[i-1];if d>.5 and (not step or d<step) then step=d end end
+ return step
+end
+-- Read the native grid (slot size, spacing, columns, lowest row) from the real item buttons.
+local function nativeGrid(f)
+ local lefts,tops,seenL,seenT={}, {},{}, {}
+ local size,lowestTop
+ for _,item in ipairs(f.Items or {}) do
+  if item:IsShown() and item.GetBagID and item:GetBagID()~=REAGENT_BAG then
+   local l,t=item:GetLeft(),item:GetTop()
+   if l and t then
+    l,t=math.floor(l*2+.5)/2,math.floor(t*2+.5)/2
+    if not seenL[l] then seenL[l]=true;lefts[#lefts+1]=l end
+    if not seenT[t] then seenT[t]=true;tops[#tops+1]=t end
+    size=size or item:GetWidth()
+    if not lowestTop or t<lowestTop then lowestTop=t end
+   end
+  end
+ end
+ if not size or #lefts==0 then return nil end
+ local colStep,rowStep=minStep(lefts),minStep(tops)
+ return {size=size,cols=#lefts,minLeft=lefts[1],lowestTop=lowestTop,colStep=colStep or size+4,rowStep=rowStep or size+4}
+end
+-- Empty native slots show a silhouette; copy that exact art (atlas or texture region).
+local function nativeEmptyArt(f)
+ if f.tbEmptyArt then return f.tbEmptyArt end
+ for _,item in ipairs(f.Items or {}) do
+  if item:IsShown() and item.GetBagID and item:GetBagID()~=REAGENT_BAG then
+   local bag,id=item:GetBagID(),item:GetID()
+   if bag and id and not C_Container.GetContainerItemInfo(bag,id) then
+    local name=item.GetName and item:GetName()
+    local icon=item.icon or item.Icon or (name and _G[name..'IconTexture'])
+    if icon then
+     local atlas=icon.GetAtlas and clean(icon:GetAtlas())
+     local art
+     if atlas and atlas~='' then art={atlas=atlas}
+     else
+      local tex=icon.GetTexture and clean(icon:GetTexture())
+      if tex and icon.GetTexCoord then art={tex=tex,coords={icon:GetTexCoord()}} end
+     end
+     if art then f.tbEmptyArt=art;return art end
+    end
+   end
+  end
+ end
+end
+local function drawArt(texture,art,r,g,b,a)
+ if art.atlas then texture:SetAtlas(art.atlas) else texture:SetTexture(art.tex);texture:SetTexCoord(unpack(art.coords)) end
+ texture:SetVertexColor(r,g,b);texture:SetAlpha(a);texture:Show()
+end
+local function reagentRefresh()
+ if ForeverAssistBag and ForeverAssistBag.Active and ForeverAssistBag.Active() then P.ClearReagents();return end
+ local f=ContainerFrameCombinedBags;local manager=ContainerFrameSettingsManager
+ local slots=C_Container.GetContainerNumSlots(REAGENT_BAG) or 0
+ local combined=false
+ if manager and manager.IsUsingCombinedBags then local ok,v=pcall(manager.IsUsingCombinedBags,manager);combined=ok and v and true or false end
+ if not reagentOn() or not f or not combined or slots<=0 then P.ClearReagents();return end
+ if not f:IsShown() then return end
+ local grid=nativeGrid(f)
+ if not grid then return end
+ local PADV=8
+ local fl=f:GetLeft();if not fl then return end
+ if not reagentPanel then
+  reagentPanel=CreateFrame('Frame','TrailboundReagentDrawer',f,BackdropTemplateMixin and 'BackdropTemplate' or nil)
+  if reagentPanel.SetBackdrop then reagentPanel:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Buttons/WHITE8X8',edgeSize=1});reagentPanel:SetBackdropColor(.075,.06,.045,.98);reagentPanel:SetBackdropBorderColor(.62,.5,.22,1) end
+  reagentPanel:EnableMouse(true)
+ end
+ local window=reagentPanel
+ if window:GetParent()~=f then window:SetParent(f) end
+ window:SetFrameLevel(f:GetFrameLevel()+1)
+ local cols=math.max(1,math.min(grid.cols,slots));local rows=math.ceil(slots/cols)
+ local x0=grid.minLeft-fl
+ local height=rows*grid.rowStep-(grid.rowStep-grid.size)+PADV*2
+ -- A drawer flush under the bag, as wide as the bag, with slots in the bag's own columns.
+ window:ClearAllPoints();window:SetPoint('TOPLEFT',f,'BOTTOMLEFT',0,1);window:SetPoint('TOPRIGHT',f,'BOTTOMRIGHT',0,1);window:SetHeight(height);window:Show()
+ local lift=height-1
+ if math.abs((f.tbLift or 0)-lift)>.5 then f.tbLift=lift;if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end end
+ local art=nativeEmptyArt(f)
+ for slot=1,slots do
+  local b=reagentButtons[slot] or reagentSlot(window,slot);reagentButtons[slot]=b
+  if b:GetParent()~=window then b:SetParent(window) end
+  local row,col=math.floor((slot-1)/cols),(slot-1)%cols
+  b:SetSize(grid.size,grid.size);b:ClearAllPoints();b:SetPoint('TOPLEFT',window,'TOPLEFT',x0+col*grid.colStep,-PADV-row*grid.rowStep);b:SetFrameLevel(window:GetFrameLevel()+3);b:Show()
+  local info=C_Container.GetContainerItemInfo(REAGENT_BAG,slot)
+  if issecretvalue and issecretvalue(info) then info=nil end
+  local icon=info and clean(info.iconFileID);local quality=info and clean(info.quality)
+  b.hasItem=icon~=nil;b.count=info and clean(info.stackCount) or 0
+  if icon then
+   local color=quality and quality>1 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+   b.edge:SetColorTexture(color and color.r or .25,color and color.g or .25,color and color.b or .27,1);b.fill:SetColorTexture(.04,.04,.05,1)
+   b.icon:SetTexture(icon);b.icon:SetTexCoord(.07,.93,.07,.93);b.icon:SetVertexColor(1,1,1);b.icon:SetAlpha(info.isLocked and .4 or 1);b.icon:Show()
+   b.countText:SetText(b.count>1 and b.count or '')
+   local ok,start,duration=pcall(C_Container.GetContainerItemCooldown,REAGENT_BAG,slot)
+   if ok and type(start)=='number' and type(duration)=='number' then b.cooldown:SetCooldown(start,duration) else b.cooldown:Clear() end
+  else
+   b.edge:SetColorTexture(.1,.1,.11,1);b.fill:SetColorTexture(.06,.09,.09,1)
+   if art then drawArt(b.icon,art,.62,.95,.88,.9) else b.fill:SetColorTexture(.18,.52,.45,.55);b.icon:Hide() end
+   b.countText:SetText('');b.cooldown:Clear()
+  end
+ end
+ for slot=slots+1,#reagentButtons do reagentButtons[slot]:Hide() end
+end
+function P.Settings() return settings() end
+function P.UpdateReagentPanel()
+ if combat() then return end
+ local ok,err=pcall(reagentRefresh)
+ if not ok then reagentFailed(err) end
+end
+function P.HookReagentPanel()
+ local f=ContainerFrameCombinedBags
+ if not f or f.tbReagentPanelHooked then return end
+ f.tbReagentPanelHooked=true
+ f:HookScript('OnShow',function() reagentDismissed=false;P.UpdateReagentPanel();if C_Timer then C_Timer.After(0,P.UpdateReagentPanel) end end)
+ f:HookScript('OnHide',function() hideReagentWindow() end)
+ if type(f.UpdateItemSlots)=='function' then hooksecurefunc(f,'UpdateItemSlots',function() P.UpdateReagentPanel() end) end
+ reagentEvents=CreateFrame('Frame')
+ for _,event in ipairs({'BAG_UPDATE_DELAYED','ITEM_LOCK_CHANGED','BAG_UPDATE_COOLDOWN','PLAYER_REGEN_ENABLED'}) do reagentEvents:RegisterEvent(event) end
+ reagentEvents:SetScript('OnEvent',function() if ContainerFrameCombinedBags:IsShown() then P.UpdateReagentPanel() end end)
+ P.UpdateReagentPanel()
+end
+P.HookCombinedReagents=P.HookReagentPanel
+-- Low bag space warning: general bags only (not ammo/profession bags or the reagent bag).
+local bagWarning
+local function freeBagSlots()
+ local total=0
+ for bag=0,(NUM_BAG_SLOTS or 4) do
+  local ok,free,kind=pcall(C_Container.GetContainerNumFreeSlots,bag)
+  if ok and type(free)=='number' and (kind==nil or kind==0) then total=total+free end
+ end
+ return total
+end
+function P.UpdateBagWarning()
+ if not settings then return end
+ local free=settings().lowBagWarning~=false and freeBagSlots() or nil
+ if not free or free>3 then if bagWarning then bagWarning:Hide() end return end
+ if not bagWarning then
+  bagWarning=CreateFrame('Frame','TrailboundBagWarning',UIParent);bagWarning:SetSize(340,26);bagWarning:SetPoint('CENTER',UIParent,'CENTER',0,260);bagWarning:SetFrameStrata('HIGH');bagWarning:EnableMouse(false)
+  bagWarning.text=bagWarning:CreateFontString(nil,'OVERLAY','TrailboundText');bagWarning.text:SetAllPoints();bagWarning.text:SetTextColor(1,.55,.15)
+ end
+ bagWarning.text:SetText(free==0 and 'Bags full!' or ('Bags almost full: %d free slot%s'):format(free,free==1 and '' or 's'))
+ bagWarning:Show()
+end
+local bagWarningEvents=CreateFrame('Frame')
+for _,event in ipairs({'BAG_UPDATE_DELAYED','PLAYER_ENTERING_WORLD'}) do bagWarningEvents:RegisterEvent(event) end
+bagWarningEvents:SetScript('OnEvent',function() P.UpdateBagWarning() end)
 -- Camp IDs are Forever spell records, not assumed buff names or fixed durations.
 local campWarned,nearbyWas,tentWas={},false,false
 local campSit,campTimer,campAura,campVisibility
@@ -940,6 +1167,56 @@ function P.RingEditor()
  P.RefreshRingEditor();if ringEditor:IsShown() then ringEditor:Hide() elseif ForeverAssistShowEditor then ForeverAssistShowEditor(ringEditor) else ringEditor:Show() end
 end
 local squareBorder,roundMask,roundDecorations
+-- Close the gap between the zone header and the minimap (the room the mail icon used to take)
+-- and move the mail icon onto the map's top-left corner. Idempotent: it measures against the
+-- anchor the client set, so a client re-layout is simply measured again.
+local minimapState={applied=0}
+local minimapPending=false
+function P.ApplyCompactMinimap()
+ if combat() or not MinimapCluster or not Minimap or not account then return end
+ local on=settings().compactMinimap~=false
+ local mover=MinimapCluster.MinimapContainer or Minimap
+ local header=MinimapCluster.BorderTop or MinimapCluster.ZoneTextButton
+ local st=minimapState
+ if header and mover.GetPoint then
+  local point,rel,relPoint,x,y=mover:GetPoint(1)
+  local hb,mt=header:GetBottom(),Minimap:GetTop()
+  if point and type(y)=='number' and hb and mt then
+   if st.mover~=mover or st.point~=point or math.abs(y-(st.origY+st.applied))>.5 then st.mover,st.point,st.origY,st.applied=mover,point,y,0 end
+   local unit=mover:GetEffectiveScale()
+   local gap=(hb*header:GetEffectiveScale()-mt*Minimap:GetEffectiveScale())/unit+st.applied
+   local target=on and math.max(0,math.min(gap-2,80)) or 0
+   if math.abs(target-st.applied)>.5 then mover:SetPoint(point,rel,relPoint,x,st.origY+target);st.applied=target end
+  end
+ end
+ local indicator=MinimapCluster.IndicatorFrame or MiniMapMailFrame
+ if indicator and indicator.ClearAllPoints then
+  if on then
+   if not st.indicator then local a,b,c,d,e=indicator:GetPoint(1);st.indicator={a,b,c,d,e} end
+   local a,b,_,dx,dy=indicator:GetPoint(1)
+   if not (a=='TOPLEFT' and b==Minimap and dx==3 and dy==-3) then
+    indicator:ClearAllPoints();indicator:SetPoint('TOPLEFT',Minimap,'TOPLEFT',3,-3)
+    if indicator.SetFrameLevel then indicator:SetFrameLevel(Minimap:GetFrameLevel()+12) end
+   end
+  elseif st.indicator and st.indicator[1] then
+   indicator:ClearAllPoints();indicator:SetPoint(unpack(st.indicator));st.indicator=nil
+  end
+ end
+end
+local function scheduleCompact()
+ if minimapPending or not C_Timer then return end
+ minimapPending=true
+ C_Timer.After(.05,function() minimapPending=false;P.ApplyCompactMinimap() end)
+end
+local minimapEvents=CreateFrame('Frame')
+for _,event in ipairs({'PLAYER_ENTERING_WORLD','UI_SCALE_CHANGED','DISPLAY_SIZE_CHANGED','PLAYER_REGEN_ENABLED','ZONE_CHANGED_NEW_AREA'}) do pcall(minimapEvents.RegisterEvent,minimapEvents,event) end
+minimapEvents:SetScript('OnEvent',function() scheduleCompact();if C_Timer then C_Timer.After(1,scheduleCompact);C_Timer.After(4,scheduleCompact) end end)
+if MinimapCluster then
+ for _,name in ipairs({'SetHeaderUnderneath','UpdateLayout','Layout'}) do if type(MinimapCluster[name])=='function' then pcall(hooksecurefunc,MinimapCluster,name,scheduleCompact) end end
+ if MinimapCluster.IndicatorFrame and type(MinimapCluster.IndicatorFrame.Layout)=='function' then pcall(hooksecurefunc,MinimapCluster.IndicatorFrame,'Layout',scheduleCompact) end
+end
+if UIParent_UpdateTopFramePositions then pcall(hooksecurefunc,'UIParent_UpdateTopFramePositions',scheduleCompact) end
+
 function P.ApplySquareMinimap()
  if not Minimap or not Minimap.SetMaskTexture or combat() then return end
  if roundMask==nil then
@@ -957,6 +1234,7 @@ function P.ApplySquareMinimap()
  Minimap:SetMaskTexture(enabled and 'Interface/Buttons/WHITE8X8' or roundMask)
  for f,wasShown in pairs(roundDecorations) do if enabled then f:Hide() else f:SetShown(wasShown) end end
  squareBorder:SetShown(enabled and Minimap:IsShown())
+ P.ApplyCompactMinimap()
 end
 
 -- Proxy launchers leave each addon's original position, size and scripts intact.
@@ -1079,6 +1357,7 @@ function P.FastLoot()
 end
 -- Food and drink use their real helpful auras; Well Fed is a short ready notice.
 local nutritionFrame,nutritionAuras,wellFedToken,wellFedUntil=nil,{},nil,0
+local wellFedExpires,wellFedWarned=0,false
 local foodNames={Food='food',Drink='drink',Refreshment='both',['Food & Drink']='both',['Well Fed']='ready',Cannibalize='cannibalize',Bandage='bandage',Bandaging='bandage',['First Aid']='bandage'}
 local function nutritionNames()
  for id,kind in pairs({[430]='food',[431]='drink',[433]='food',[19705]='ready',[20577]='cannibalize',[746]='bandage',[1159]='bandage',[3267]='bandage',[3268]='bandage',[7926]='bandage',[7927]='bandage',[10838]='bandage',[10839]='bandage'}) do
@@ -1087,9 +1366,10 @@ local function nutritionNames()
  end
 end
 function P.CheckNutrition()
- if not settings().nutritionTimers then nutritionAuras={};wellFedUntil=0;P.UpdateNutrition();return end
+ local timers,remind=settings().nutritionTimers,settings().wellFedReminder~=false
+ if not timers and not remind then nutritionAuras={};wellFedUntil=0;wellFedExpires=0;P.UpdateNutrition();return end
  if not ForeverAssistAuraReadable() then return end
- local found,ready={},nil
+ local found,ready,readyExpires={},nil,0
  local channeling=false
  if UnitChannelInfo then
   local ok,name,_,icon,_,ends,_,_,id=pcall(UnitChannelInfo,'player')
@@ -1102,19 +1382,25 @@ function P.CheckNutrition()
   local aura,readable=ForeverAssistReadPlayerAura(i);if not readable then return end;if not aura then break end
   local kind=(aura.spellId==20577 or aura.spellId==20578) and 'cannibalize' or foodNames[aura.name]
   if aura.isHarmful~=true and aura.isHelpful~=false and kind then
-   if kind=='ready' then ready=tostring(aura.spellId or aura.name)..':'..tostring(aura.expirationTime or aura.auraInstanceID or 0)
+   if kind=='ready' then ready=tostring(aura.spellId or aura.name)..':'..tostring(aura.expirationTime or aura.auraInstanceID or 0);if type(aura.expirationTime)=='number' then readyExpires=aura.expirationTime end
    elseif kind~=channeling then found[#found+1]={aura=aura,label=kind=='bandage' and 'Bandaging' or kind=='cannibalize' and 'Cannibalize' or kind=='food' and 'Eating' or kind=='drink' and 'Drinking' or 'Eating and drinking'} end
   end
  end
- nutritionAuras=found
- if ready and ready~=wellFedToken then wellFedUntil=GetTime()+6;say('Well Fed — ready!') end
+ nutritionAuras=timers and found or {}
+ if timers and ready and ready~=wellFedToken then wellFedUntil=GetTime()+6 end
+ -- A new or refreshed Well Fed re-arms the two-minute warning.
+ if ready~=wellFedToken then wellFedWarned=false end
  wellFedToken=ready
+ wellFedExpires=ready and readyExpires or 0
+ if remind and wellFedExpires>0 and wellFedExpires-GetTime()<=120 and not wellFedWarned then wellFedWarned=true;say('Well Fed has less than 2 minutes left.') end
  P.UpdateNutrition()
 end
 function P.UpdateNutrition()
- if not settings().nutritionTimers and not P.nutritionUnlocked then if nutritionFrame then nutritionFrame:Hide() end;return end
- if #nutritionAuras==0 and wellFedUntil<=GetTime() and not P.nutritionUnlocked then if nutritionFrame then nutritionFrame:Hide() end;return end
- local lines={};local now=GetTime()
+ local now=GetTime()
+ local warn=settings().wellFedReminder~=false and wellFedExpires>now and wellFedExpires-now<=120
+ if not settings().nutritionTimers and not warn and not P.nutritionUnlocked then if nutritionFrame then nutritionFrame:Hide() end;return end
+ if #nutritionAuras==0 and wellFedUntil<=now and not warn and not P.nutritionUnlocked then if nutritionFrame then nutritionFrame:Hide() end;return end
+ local lines={}
  for _,entry in ipairs(nutritionAuras) do
   local expires=entry.aura.expirationTime or 0
   if expires==0 or expires>now then
@@ -1123,6 +1409,7 @@ function P.UpdateNutrition()
   end
  end
  if wellFedUntil>now then lines[#lines+1]='|cff66ff88Well Fed — ready!|r' end
+ if warn then local left=wellFedExpires-now;lines[#lines+1]=('|cffffa033Well Fed ending — %d:%02d left|r'):format(math.floor(left/60),math.floor(left%60)) end
  if #lines==0 and P.nutritionUnlocked then lines[1]='|T134400:24|t Eating — 25.0 seconds';lines[2]='Drag this recovery timer to move it' end
  if #lines==0 then if nutritionFrame then nutritionFrame:Hide() end;return end
  if not nutritionFrame then
@@ -1173,7 +1460,7 @@ function P.Options(category)
  local page=playOptions[category]
  if not page then
   local titles={combat='Combat messages',xp='Experience bar',swing='Swing timer',nutrition='Food and drink',camp='Camp notices',bags='Bag movement',minimap='Minimap buttons',loot='Looting'}
-  page=window('ForeverAssistPlayOptions_'..category,titles[category] or 'Gameplay',440,300);playOptions[category]=page
+  page=window('ForeverAssistPlayOptions_'..category,titles[category] or 'Gameplay',440,category=='bags' and 380 or (category=='nutrition' and 340 or 300));playOptions[category]=page
   local function check(key,label,y)
    local c=CreateFrame('CheckButton',nil,page,'UICheckButtonTemplate');c:SetPoint('TOPLEFT',20,y);local t=text(c);t:SetPoint('LEFT',c,'RIGHT',3,0);t:SetText(label)
    c:SetScript('OnClick',function(self) settings()[key]=self:GetChecked() and true or false;P.ApplySettings() end);c:HookScript('OnShow',function(self) self:SetChecked(settings()[key]) end)
@@ -1222,17 +1509,18 @@ function P.Options(category)
   elseif category=='combat' then check('quietErrors','Hide and mute common combat errors',-48)
   elseif category=='nutrition' then
    check('nutritionTimers','Food, drink, bandage & Cannibalize timers',-48)
-   local unlock=button(page,'Unlock and preview timer',20,-100,400,function(self)
+   check('wellFedReminder','Remind me when Well Fed has under 2 minutes left',-88)
+   local unlock=button(page,'Unlock and preview timer',20,-140,400,function(self)
     P.nutritionUnlocked=not P.nutritionUnlocked;self:SetText(P.nutritionUnlocked and 'Lock timer' or 'Unlock and preview timer');P.UpdateNutrition()
    end)
-   button(page,'Reset timer position',20,-140,400,function() settings().nutritionPosition=nil;if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end end)
-   local note=text(page);note:SetPoint('TOPLEFT',20,-185);note:SetWidth(400);note:SetText('Unlock to show a draggable preview without eating or bandaging. Closing this editor locks the timer. Its position is saved in your profile.')
+   button(page,'Reset timer position',20,-180,400,function() settings().nutritionPosition=nil;if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end end)
+   local note=text(page);note:SetPoint('TOPLEFT',20,-225);note:SetWidth(400);note:SetText('Unlock to show a draggable preview without eating or bandaging. Closing this editor locks the timer. Its position is saved in your profile.')
    page:SetScript('OnHide',function() P.nutritionUnlocked=false;unlock:SetText('Unlock and preview timer');P.UpdateNutrition() end)
   elseif category=='camp' then check('campNotices','Camp notices, Sit button and welcome timer',-48)
-  elseif category=='bags' then check('moveBags','Drag bag headers to move',-48);button(page,'Reset bag positions',20,-100,400,function() P.ResetBags();say('Bag positions reset.') end)
-  elseif category=='minimap' then check('minimapMenu','Show addon icons on minimap right-click',-48);check('squareMinimap','Use a square minimap',-88)
+  elseif category=='bags' then check('moveBags','Drag bag headers to move',-48);check('combinedReagents','Show the reagent bag in a drawer under the combined backpack',-88);check('lowBagWarning','Warn when only 3 bag slots are free',-128);check('fullBagJunk','Open junk manager when bags are full while looting',-168);check('mailPrefill','Prefill the last mailed character in new mail',-208);check('customBag','Use the Trailbound bag window (search, sort, reagents inside)',-248);button(page,'Reset bag positions',20,-294,400,function() P.ResetBags();say('Bag positions reset.') end)
+  elseif category=='minimap' then check('minimapMenu','Show addon icons on minimap right-click',-48);check('squareMinimap','Use a square minimap',-88);check('compactMinimap','Close the gap under the minimap header, mail icon on the map',-128)
   elseif category=='loot' then check('fastLoot','Faster auto looting and instant window close',-48) end
-  button(page,'Back to settings',20,-260,400,function() page:Hide();if ForeverAssistOptions then ForeverAssistOptions:Show() end end)
+  button(page,'Back to settings',20,category=='bags' and -340 or (category=='nutrition' and -300 or -260),400,function() page:Hide();if ForeverAssistOptions then ForeverAssistOptions:Show() end end)
  end
  for _,other in pairs(playOptions) do if other~=page then other:Hide() end end
  if page.Refresh then page.Refresh()end
@@ -1256,7 +1544,7 @@ character.keptJunk=character.keptJunk or {};account.mailRecipients=account.mailR
   account.petRingDefaultsAdded=true
  end
  if settings().xpLocked==nil then settings().xpLocked=true end
- for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','minimapMenu','fastLoot','squareMinimap','nutritionTimers'}) do if settings()[key]==nil then settings()[key]=true end end
+ for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','combinedReagents','lowBagWarning','fullBagJunk','mailPrefill','compactMinimap','minimapMenu','fastLoot','squareMinimap','nutritionTimers','wellFedReminder'}) do if settings()[key]==nil then settings()[key]=true end end
  for _,event in ipairs({'LOOT_READY','LOOT_OPENED','LOOT_SLOT_CLEARED','LOOT_CLOSED','PLAYER_LOGIN','ADDON_LOADED','PLAYER_XP_UPDATE','CHAT_MSG_COMBAT_XP_GAIN','QUEST_LOG_UPDATE','QUEST_DATA_LOAD_RESULT','UPDATE_EXHAUSTION','TIME_PLAYED_MSG','UNIT_AURA','UNIT_SPELLCAST_CHANNEL_START','UNIT_SPELLCAST_CHANNEL_UPDATE','UNIT_SPELLCAST_CHANNEL_STOP','PLAYER_SWING','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','MERCHANT_SHOW','MERCHANT_UPDATE','MERCHANT_CLOSED','MAIL_SHOW','MAIL_SEND_SUCCESS','MAIL_FAILED','MAIL_CLOSED','TRAINER_SHOW','TRAINER_CLOSED','BAG_UPDATE_DELAYED','SPELLS_CHANGED','PLAYER_REGEN_ENABLED'}) do pcall(events.RegisterEvent,events,event) end
  if BuybackItem then hooksecurefunc('BuybackItem',P.BoughtBack) end
  if SendMail then hooksecurefunc('SendMail',function(name)
@@ -1267,7 +1555,7 @@ character.keptJunk=character.keptJunk or {};account.mailRecipients=account.mailR
  end) end
  if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe then hooksecurefunc(C_TradeSkillUI,'CraftRecipe',function(id,count) P.CraftStart(id,count) end) end
  if DoTradeSkill then hooksecurefunc('DoTradeSkill',function(_,count) P.CraftStart(nil,count) end) end
- if UpdateContainerFrameAnchors then hooksecurefunc('UpdateContainerFrameAnchors',P.ApplyBagPositions) end
+ if UpdateContainerFrameAnchors then hooksecurefunc('UpdateContainerFrameAnchors',function() P.ApplyBagPositions();P.LiftForReagents() end) end
 end
 local stanceHooks={}
 function P.ApplyStanceBar()
@@ -1287,7 +1575,7 @@ function P.ApplyStanceBar()
   end
  end
 end
-function P.ApplySettings() if not account then return end;ForeverAssistBuffTracker.ApplySettings();for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','minimapMenu','fastLoot','squareMinimap','nutritionTimers'}) do if settings()[key]==nil then settings()[key]=true end end;P.BuildRings();P.ApplyStanceBar();P.ApplyJunkBinding();setupErrors();hookBags();P.CheckCamp();P.CheckNutrition();if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end;P.ApplySquareMinimap();if settings().minimapMenu then setupMinimap() else restoreLaunchers() end end
+function P.ApplySettings() if not account then return end;ForeverAssistBuffTracker.ApplySettings();for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','combinedReagents','lowBagWarning','fullBagJunk','mailPrefill','compactMinimap','minimapMenu','fastLoot','squareMinimap','nutritionTimers','wellFedReminder'}) do if settings()[key]==nil then settings()[key]=true end end;P.BuildRings();P.ApplyStanceBar();P.ApplyJunkBinding();setupErrors();hookBags();P.CheckCamp();P.CheckNutrition();if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end;P.ApplySquareMinimap();if ForeverAssistBag then ForeverAssistBag.Refresh() end;if settings().minimapMenu then setupMinimap() else restoreLaunchers() end end
 function P.Event(_,event,a,b,c)
  if not account then return end
  if event=='LOOT_READY' then P.FastLoot()
@@ -1305,8 +1593,8 @@ function P.Event(_,event,a,b,c)
  elseif event=='MERCHANT_SHOW' then paused=false;P.CacheBuybacks()
  elseif event=='MERCHANT_UPDATE' then P.CacheBuybacks()
  elseif event=='MERCHANT_CLOSED' then paused=false;ForeverAssistExtras.CancelAutomaticSale()
- elseif event=='MAIL_SHOW' then hookMail()
- elseif event=='MAIL_SEND_SUCCESS' then if mailPending then P.RememberRecipient(mailPending);mailPending=nil end
+ elseif event=='MAIL_SHOW' then hookMail();P.PrefillMail()
+ elseif event=='MAIL_SEND_SUCCESS' then if mailPending then P.RememberRecipient(mailPending);mailPending=nil end;if C_Timer then C_Timer.After(.1,function() P.PrefillMail() end) end
  elseif event=='MAIL_FAILED' or event=='MAIL_CLOSED' then mailPending=nil;if mailWindow then mailWindow:Hide() end
  elseif event=='TRAINER_SHOW' then hookTrainer()
  elseif event=='TRAINER_CLOSED' then training=nil

@@ -1,5 +1,5 @@
 -- Read-only bank snapshots. The real BankFrame and its actions are untouched.
-ForeverAssistBank={Version='1.8.54'}
+ForeverAssistBank={Version='1.8.71'}
 local B=ForeverAssistBank
 local account,character,bankOpen=false,nil,false
 local viewer,selectedKey,selectedTab

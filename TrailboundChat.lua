@@ -1,4 +1,4 @@
-ForeverAssistChat={Version='1.8.54'}
+ForeverAssistChat={Version='1.8.71'}
 local C=ForeverAssistChat
 local settings,options,copyWindow,copyBox
 local identities,wrapped={},{ }
@@ -93,7 +93,10 @@ function C.Apply()
     frame.AddMessage=function(self,msg,...)return original(self,C.Format(msg),...)end
     frame:SetScript('OnHyperlinkClick',function(self,link,label,...)
      if C.Link(link)then return end
-     if settings().chatCopyLinks~=false and IsControlKeyDown and IsControlKeyDown()and safe(label)and safe(link)and type(link)=='string'then C.Copy(type(label)=='string'and label or link);return end
+     -- Ctrl-click on an item stays native (dressing room); copy items with Ctrl+Alt-click instead.
+     local isItem=safe(link) and type(link)=='string' and link:find('^item:')~=nil
+     local wantsCopy=IsControlKeyDown and IsControlKeyDown() and (not isItem or (IsAltKeyDown and IsAltKeyDown()))
+     if settings().chatCopyLinks~=false and wantsCopy and safe(label)and safe(link)and type(link)=='string'then C.Copy(type(label)=='string'and label or link);return end
      if click then return click(self,link,label,...)end
     end)
     wrapped[frame]={}
@@ -136,7 +139,7 @@ function C.Options()
   local b=CreateFrame('Button',nil,options,'UIPanelButtonTemplate');b:SetSize(290,26);b:SetPoint('TOPLEFT',20,-345)
   local function caption()b:SetText('Chat font size: '..tostring(settings().chatFontSize or 'Default'))end
   b:SetScript('OnClick',function()local n=settings().chatFontSize or 12;if n>=20 then settings().chatFontSize=nil else settings().chatFontSize=n+1 end;C.Apply();caption()end);b:HookScript('OnShow',caption);ForeverAssistStyleButton(b)
-  local help=options:CreateFontString(nil,'OVERLAY','TrailboundText');help:SetPoint('TOPLEFT',20,-395);help:SetWidth(440);help:SetJustifyH('LEFT');help:SetText('Existing class name colors are preserved. Icons need known sender data; unknown or restricted identities remain unchanged.\n\nClick a URL, or Ctrl-click an item/player link, then Ctrl+C. Use /copychat to copy recent chat history. Normal clicks retain their usual behavior.');options:Hide()
+  local help=options:CreateFontString(nil,'OVERLAY','TrailboundText');help:SetPoint('TOPLEFT',20,-395);help:SetWidth(440);help:SetJustifyH('LEFT');help:SetText('Existing class name colors are preserved. Icons need known sender data; unknown or restricted identities remain unchanged.\n\nClick a URL, Ctrl-click a player link, or Ctrl+Alt-click an item link, then Ctrl+C (Ctrl-click on an item still opens the dressing room). Use /copychat to copy recent chat history. Normal clicks retain their usual behavior.');options:Hide()
  end
  ForeverAssistShowEditor(options)
 end
