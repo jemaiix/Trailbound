@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.71
+-- Trailbound 1.8.74
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -21,7 +21,7 @@ local defaults = {
     sparkle = true,
     petReminder = true, sleepingBagReminder = true, audioFollowSystem = true, flightTimer = true, levelTimes = true, levelTimesBackgroundOpacity = 0, craftProfit = true,
     buffs = true, buffsHideCombat = false, buffsHideMounted = true,
-    manaGemReminder = true, wellFedLeveling = true, lowBagWarning = true, fullBagJunk = true,
+    manaGemReminder = true, poisonReminder = true, ammoReminder = true, autoRepair = false, autoRepairGuild = false, wellFedLeveling = true, lowBagWarning = true, fullBagJunk = true,
     chatClassIcons = true, chatRaceIcons = true, chatCompact = true, chatTight = true, chatCopyLinks = true,
     buffSize = 48, buffTextSize = 14, buffX = 0, buffY = 150,
 }
@@ -576,9 +576,13 @@ local function LayoutReminder(list)
         b.label:SetFont(STANDARD_TEXT_FONT, tsize, "OUTLINE")
         b.label:SetWidth(spacing-4);b.label:SetHeight(tsize*2+4);b.label:SetJustifyH("CENTER");b.label:SetWordWrap(true)
         b.fullLabel=g.label
-        b.castSpell=not unlocked and g.spell or nil;b.clickText=g.clickText
-        b:SetAttribute("type",b.castSpell and "spell" or nil)
-        b:SetAttribute("spell",b.castSpell)
+        b.castSpell=not unlocked and (g.spell or g.macro) or nil;b.clickText=g.clickText
+        if not unlocked and g.macro then
+            b:SetAttribute("type","macro");b:SetAttribute("macrotext",g.macro);b:SetAttribute("spell",nil)
+        else
+            b:SetAttribute("type",b.castSpell and "spell" or nil)
+            b:SetAttribute("spell",b.castSpell);b:SetAttribute("macrotext",nil)
+        end
         b:SetAttribute("unit","player")
         b.label:SetText("|cffff4040" .. ForeverAssistReminders.ShortLabel(g) .. "|r")
         b:Show()
@@ -599,7 +603,7 @@ local function UpdateReminder()
     local sleeping=not unlocked and ForeverAssistReminders.SleepingBagReminder(auras,DB.sleepingBagReminder)
     if unlocked then
         list = { { label = "Drag me", icon = 134400 }, { label = "Preview", icon = 134400 } }
-    elseif (DB.buffs or DB.gathering or DB.petReminder or DB.sleepingBagReminder or DB.manaGemReminder~=false or DB.wellFedLeveling~=false)
+    elseif (DB.buffs or DB.gathering or DB.petReminder or DB.sleepingBagReminder or DB.manaGemReminder~=false or DB.wellFedLeveling~=false or DB.poisonReminder~=false or DB.ammoReminder~=false)
         and not ForeverAssistReminders.InCapital()
         and not UnitIsDeadOrGhost("player")
         and not (DB.buffsHideCombat and UnitAffectingCombat("player"))
@@ -617,6 +621,8 @@ local function UpdateReminder()
         end
         for _, g in ipairs(ForeverAssistSystems.GatheringReminders()) do list[#list + 1] = g end
         if DB.petReminder then local pet=ForeverAssistReminders.PetReminder(auras);if pet then list[#list+1]=pet end end
+        if DB.poisonReminder~=false then local poison=ForeverAssistReminders.PoisonReminder();if poison then list[#list+1]=poison end end
+        if DB.ammoReminder~=false then local ammo=ForeverAssistReminders.AmmoReminder();if ammo then list[#list+1]=ammo end end
         if DB.manaGemReminder~=false then local gem=ForeverAssistReminders.ManaGemReminder();if gem then list[#list+1]=gem end end
         if DB.wellFedLeveling~=false then local food=ForeverAssistReminders.WellFedReminder(auras);if food then list[#list+1]=food end end
         if sleeping then list[#list+1]=sleeping end
@@ -819,16 +825,18 @@ local function CreateOptions()
     heading(junk,'Vendor junk',-70)
     Check(junk,"sellJunk","Auto-sell gray items",0,-99,function() if not DB.sellJunk then ForeverAssistExtras.CancelAutomaticSale() end end)
     Check(junk,"junkReport","Print sale summary",0,-132)
-    Button(junk,"Open junk manager",0,-180,function() opt:Hide();ForeverAssistExtras.ToggleJunk() end)
-    Button(junk,"Assign junk keybind",220,-180,function() ForeverAssistPlay.JunkBindingOptions() end)
-    label(junk,'Hold Shift when opening a vendor to skip automatic selling.',2,-216,470)
-    heading(junk,'Account inventory & movement',-260)
-    Check(junk,"accountBags","Account bags, saved banks, gold & item counts",0,-289,function() ForeverAssistSystems.HookWindows() end)
-    Check(junk,"moveBags","Drag bag headers to move",0,-322,applyPlay)
-    Check(junk,"combinedReagents","Show the reagent bag in a drawer under the combined backpack",0,-355,applyPlay)
-    Button(junk,"Browse account bags",0,-398,function() opt:Hide();ForeverAssistSystems.ToggleInventory() end)
-    Button(junk,"Reset bag positions",220,-398,function() ForeverAssistPlay.ResetBags() end)
-    Check(junk,"fastLoot","Faster auto looting",0,-440,applyPlay)
+    Check(junk,"autoRepair","Automatically repair gear at vendors",0,-165)
+    Check(junk,"autoRepairGuild","Use guild funds for repairs when allowed",0,-198)
+    Button(junk,"Open junk manager",0,-246,function() opt:Hide();ForeverAssistExtras.ToggleJunk() end)
+    Button(junk,"Assign junk keybind",220,-246,function() ForeverAssistPlay.JunkBindingOptions() end)
+    label(junk,'Hold Shift when opening a vendor to skip automatic selling and repairs.',2,-282,470)
+    heading(junk,'Account inventory & movement',-326)
+    Check(junk,"accountBags","Account bags, saved banks, gold & item counts",0,-355,function() ForeverAssistSystems.HookWindows() end)
+    Check(junk,"moveBags","Drag bag headers to move",0,-388,applyPlay)
+    Check(junk,"combinedReagents","Show the reagent bag in a drawer under the combined backpack",0,-421,applyPlay)
+    Button(junk,"Browse account bags",0,-464,function() opt:Hide();ForeverAssistSystems.ToggleInventory() end)
+    Button(junk,"Reset bag positions",220,-464,function() ForeverAssistPlay.ResetBags() end)
+    Check(junk,"fastLoot","Faster auto looting",0,-506,applyPlay)
     local recovery=section('recovery','ForeverAssistRecoveryOptions','Combat & recovery','Combat errors, mana, food, drink, and camp timers.')
     heading(recovery,'Combat',-70)
     Check(recovery,"quietErrors","Hide and mute common combat errors",0,-99,applyPlay)
@@ -874,7 +882,7 @@ local function CreateOptions()
     heading(display,'Camera',-354)
     label(display,'Extended zoom is applied on login. Use the mouse wheel to zoom out. To set another limit, use /tb camera NUMBER (0–100).',2,-397,470)
     local buffOpt=CreateFrame("Frame","ForeverAssistBuffOptions",UIParent,"BackdropTemplate")
-    buffOpt:SetSize(410,690);buffOpt:SetPoint("CENTER");buffOpt:SetFrameStrata("DIALOG");buffOpt:SetClampedToScreen(true)
+    buffOpt:SetSize(410,715);buffOpt:SetPoint("CENTER");buffOpt:SetFrameStrata("DIALOG");buffOpt:SetClampedToScreen(true)
     buffOpt:SetBackdrop({bgFile="Interface/Tooltips/UI-Tooltip-Background",edgeFile="Interface/Tooltips/UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}});buffOpt:SetBackdropColor(.04,.04,.07,.96)
     buffOpt:SetMovable(true);buffOpt:EnableMouse(true);buffOpt:RegisterForDrag("LeftButton");buffOpt:SetScript("OnDragStart",buffOpt.StartMoving);buffOpt:SetScript("OnDragStop",buffOpt.StopMovingOrSizing)
     local closeBuff=CreateFrame("Button",nil,buffOpt,"UIPanelCloseButton");closeBuff:SetPoint("TOPRIGHT",-2,-2);closeBuff.faEditorClose=true
@@ -887,12 +895,14 @@ local function CreateOptions()
     Check(buffOpt,"sleepingBagReminder","Cozy Sleeping Bag reminder",20,-154,UpdateReminder)
     Check(buffOpt,"manaGemReminder","Mage: conjure a mana gem when you have none",20,-178,UpdateReminder)
     Check(buffOpt,"wellFedLeveling","Missing Well Fed while leveling (below 60)",20,-202,UpdateReminder)
-    Slider(buffOpt, "buffSize", "Icon size", 26, -254, 24, 96, 2, UpdateReminder)
-    Slider(buffOpt, "buffTextSize", "Text size", 26, -298, 8, 12, 1, UpdateReminder)
-    Slider(buffOpt, "buffX", "Position X", 26, -342, -1000, 1000, 5, AnchorReminder)
-    Slider(buffOpt, "buffY", "Position Y", 26, -386, -600, 600, 5, AnchorReminder)
-    unlockButton = Button(buffOpt, "Unlock & move reminder", 26, -424, function() SetUnlocked(not unlocked) end)
-    Button(buffOpt, "Reset position & size", 26, -454, function()
+    Check(buffOpt,"poisonReminder","Rogue: apply a poison from your bags when none is on",20,-226,UpdateReminder)
+    Check(buffOpt,"ammoReminder","Hunter: low on ammo (fewer than 200)",20,-250,UpdateReminder)
+    Slider(buffOpt, "buffSize", "Icon size", 26, -278, 24, 96, 2, UpdateReminder)
+    Slider(buffOpt, "buffTextSize", "Text size", 26, -322, 8, 12, 1, UpdateReminder)
+    Slider(buffOpt, "buffX", "Position X", 26, -366, -1000, 1000, 5, AnchorReminder)
+    Slider(buffOpt, "buffY", "Position Y", 26, -410, -600, 600, 5, AnchorReminder)
+    unlockButton = Button(buffOpt, "Unlock & move reminder", 26, -448, function() SetUnlocked(not unlocked) end)
+    Button(buffOpt, "Reset position & size", 26, -478, function()
         DB.buffX, DB.buffY, DB.buffSize, DB.buffTextSize =
             defaults.buffX, defaults.buffY, defaults.buffSize, defaults.buffTextSize
         AnchorReminder()
@@ -900,8 +910,8 @@ local function CreateOptions()
         optionsRefresh()
     end)
 
-    Check(buffOpt,"gathering","Gathering tracking reminders",20,-490,UpdateReminder)
-    local note=buffOpt:CreateFontString(nil,"OVERLAY","TrailboundSmall");note:SetPoint("TOPLEFT",22,-533);note:SetWidth(350);note:SetJustifyH("LEFT");note:SetText("Hidden in capital cities. Click buff / tracking icons to cast on yourself. Combat keeps the last safe set until combat ends. Hover for full names. Pet reminders respect petless talents. Sleeping-bag reminders require the item ready to use outdoors. Paladin blessings are automatic.")
+    Check(buffOpt,"gathering","Gathering tracking reminders",20,-514,UpdateReminder)
+    local note=buffOpt:CreateFontString(nil,"OVERLAY","TrailboundSmall");note:SetPoint("TOPLEFT",22,-557);note:SetWidth(350);note:SetJustifyH("LEFT");note:SetText("Hidden in capital cities. Click buff / tracking icons to cast on yourself. Combat keeps the last safe set until combat ends. Hover for full names. Pet reminders respect petless talents. Sleeping-bag reminders require the item ready to use outdoors. Paladin blessings are automatic.")
     buffOpt:SetScript("OnShow",function() optionsRefresh() end)
     buffOpt:SetScript("OnHide",function() if unlocked then SetUnlocked(false) end end)
     local backBuff=Button(buffOpt,"Back to settings",22,-554,function() buffOpt:Hide();opt:Show() end)
@@ -1167,7 +1177,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.71 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.74 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()

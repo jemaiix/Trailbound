@@ -1,5 +1,5 @@
 -- Read-only market observations and conservative, per-craft estimates.
-ForeverAssistEconomy={Version='1.8.71'}
+ForeverAssistEconomy={Version='1.8.74'}
 local E=ForeverAssistEconomy
 local account,settings,options
 local panels,hooks={},{}

@@ -1,7 +1,7 @@
 -- Right-click shortcuts: lockboxes (pick the lock, bags and trade) and untranslated mage scrolls
 -- (Comprehend Scroll), plus the Lockpicking skill each box needs on its tooltip.
 -- Item and skill data only; no spawn or loot data.
-ForeverAssistLockbox={Version='1.8.71'}
+ForeverAssistLockbox={Version='1.8.74'}
 local L=ForeverAssistLockbox
 local PICK_LOCK=1804
 local function combat() return InCombatLockdown and InCombatLockdown() end

@@ -102,3 +102,10 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 ## 1.8.71
 - Item tooltips list bag and bank counts for this character and every other character on the account.
 - Auto-accept stops retrying quests the game refuses (e.g. full quest log).
+
+## 1.8.72
+- A round minimap is no longer touched unless it was made square first.
+- The client's own reagent bag window is closed on Shift+B; only the addon's reagent drawer is used.
+- Rogue poison reminder (click to apply from your bags).
+- Automatic repair at vendors (Bags, banks & vendors): own gold, optionally guild funds; Shift skips it.
+- Hunter ammo reminder when fewer than 200 arrows or bullets are left.

@@ -1,5 +1,5 @@
 -- Additional reminder rules. All aura fields come through the restricted-aura guard.
-ForeverAssistReminders={Version='1.8.71'}
+ForeverAssistReminders={Version='1.8.74'}
 local R=ForeverAssistReminders
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local abilityCache,selectedCache={},{}
@@ -98,6 +98,83 @@ function R.WellFedReminder(auras)
  local info=C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(19705)
  local icon=type(info)=='table' and safe(info.iconID) and info.iconID or 133950
  return {label='No Well Fed buff',shortLabel='Well Fed',icon=icon}
+end
+ -- Rogue poisons: when a weapon has no poison on it and poisons are in the bags, offer one (click to apply).
+local poisonOrder={'deadly poison','instant poison','wound poison','crippling poison','mind-numbing poison','anesthetic poison'}
+local function weaponIn(slot)
+ local id=GetInventoryItemID and GetInventoryItemID('player',slot)
+ if not id or not safe(id) then return false end
+ local instant=C_Item and C_Item.GetItemInfoInstant
+ if not instant then return slot==16 end
+ local _,_,_,_,_,classID=instant(id)
+ return classID==2
+end
+local function bestPoison()
+ local read=C_Container and C_Container.GetContainerItemInfo
+ if not read then return end
+ local best,bestRank,bestID
+ for bag=0,(NUM_BAG_SLOTS or 4) do
+  for slot=1,(C_Container.GetContainerNumSlots(bag) or 0) do
+   local info=read(bag,slot)
+   if type(info)=='table' and safe(info.hyperlink) and safe(info.itemID) and type(info.hyperlink)=='string' then
+    local name=(info.hyperlink:match('%[(.-)%]') or ''):lower()
+    local rank
+    for i,prefix in ipairs(poisonOrder) do if name:find(prefix,1,true)==1 then rank=i;break end end
+    if rank and (not bestRank or rank<bestRank or (rank==bestRank and info.itemID>bestID)) then
+     best,bestRank,bestID=info,rank,info.itemID
+    end
+   end
+  end
+ end
+ return best
+end
+function R.PoisonReminder()
+ local _,class=UnitClass('player');if class~='ROGUE' then return end
+ if not GetWeaponEnchantInfo then return end
+ local ok,hasMain,_,_,_,hasOff=pcall(GetWeaponEnchantInfo)
+ if not ok then return end
+ local slot
+ if weaponIn(16) and not hasMain then slot=16 elseif weaponIn(17) and not hasOff then slot=17 end
+ if not slot then return end
+ local poison=bestPoison();if not poison then return end
+ local name=poison.hyperlink:match('%[(.-)%]') or 'Poison'
+ return {label='Apply '..name,shortLabel='Poison',icon=poison.iconFileID,macro='/use item:'..poison.itemID..'\n/use '..slot,
+  clickText=slot==16 and 'Click to apply to your main hand' or 'Click to apply to your off hand'}
+end
+ -- Hunter ammo: remind when fewer than 200 of the ammo the ranged weapon uses are left (equipped + bags).
+local AMMO_LOW=200
+local function ammoKind()
+ local id=GetInventoryItemID and GetInventoryItemID('player',18)
+ if not id or not safe(id) then return end
+ local instant=C_Item and C_Item.GetItemInfoInstant
+ if not instant then return end
+ local _,_,_,_,_,classID,subclassID=instant(id)
+ if classID~=2 then return end
+ if subclassID==2 or subclassID==18 then return 2,'arrows' end   -- bows and crossbows
+ if subclassID==3 then return 3,'bullets' end                    -- guns
+end
+function R.AmmoReminder()
+ local _,class=UnitClass('player');if class~='HUNTER' then return end
+ local subclass,noun=ammoKind();if not subclass then return end
+ local instant=C_Item and C_Item.GetItemInfoInstant;if not instant then return end
+ local total,iconID=0,nil
+ local function add(id,count)
+  if not id or not safe(id) or not safe(count) or type(count)~='number' then return end
+  local _,_,_,_,icon,classID,sub=instant(id)
+  if classID==6 and sub==subclass then total=total+count;iconID=iconID or icon end
+ end
+ add(GetInventoryItemID and GetInventoryItemID('player',0),GetInventoryItemCount and GetInventoryItemCount('player',0) or 0)
+ local read=C_Container and C_Container.GetContainerItemInfo
+ if read then
+  for bag=0,(NUM_BAG_SLOTS or 4) do
+   for slot=1,(C_Container.GetContainerNumSlots(bag) or 0) do
+    local info=read(bag,slot)
+    if type(info)=='table' and safe(info) then add(info.itemID,info.stackCount or 1) end
+   end
+  end
+ end
+ if total>=AMMO_LOW then return end
+ return {label=(total==0 and ('Out of '..noun) or ('Low on '..noun..' ('..total..' left)')),shortLabel=total==0 and 'No ammo' or ('Ammo '..total),icon=iconID or 134400}
 end
 local cities={[1453]=true,[1454]=true,[1455]=true,[1456]=true,[1457]=true,[1458]=true,[1947]=true,[1954]=true}
 local cityNames={['Stormwind City']=true,Stormwind=true,Ironforge=true,Darnassus=true,Orgrimmar=true,['Thunder Bluff']=true,Undercity=true,['The Exodar']=true,Exodar=true,['Silvermoon City']=true}

@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.71'
+ForeverAssistPlay.Version='1.8.74'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -99,6 +99,24 @@ function P.BoughtBack(index)
  if not character then return end
  paused=true;ForeverAssistExtras.CancelAutomaticSale()
  local id=buybackRows[index];if id then character.keptJunk[id]=true;say('Bought-back item protected from automatic selling. /tbplay keep clear clears this list.') end
+end
+-- Repair all gear when a vendor that repairs opens. Own gold unless guild funds are allowed and cover it.
+function P.AutoRepair()
+ if not settings().autoRepair or combat() or (IsShiftKeyDown and IsShiftKeyDown()) then return end
+ if not (CanMerchantRepair and CanMerchantRepair()) or not GetRepairAllCost then return end
+ local cost,canRepair=GetRepairAllCost()
+ if not canRepair or type(cost)~='number' or cost<=0 then return end
+ local guild=false
+ if settings().autoRepairGuild and IsInGuild and IsInGuild() and CanGuildBankRepair and CanGuildBankRepair() then
+  local limit=GetGuildBankWithdrawMoney and GetGuildBankWithdrawMoney()
+  if type(limit)=='number' and (limit==-1 or limit>=cost) then guild=true end
+ end
+ if not guild and GetMoney()<cost then
+  say('Not enough gold to repair ('..(GetCoinTextureString and GetCoinTextureString(cost) or cost)..' needed).')
+  return
+ end
+ local ok=pcall(RepairAllItems,guild)
+ if ok then say('Repaired for '..(GetCoinTextureString and GetCoinTextureString(cost) or cost)..(guild and ' (guild funds)' or '')..'.') end
 end
 function P.AutoSellAllowed(id) return not paused and not (character and character.keptJunk[id]) end
 -- Filter only recognized resource/range/cooldown errors; keep other errors visible.
@@ -625,6 +643,7 @@ end
 local function hookBags()
  if combat() then return end
  P.HookReagentPanel()
+ P.HookBlizzardReagentFrame()
  local want=reagentOn()
  if reagentWas~=nil and reagentWas~=want then P.UpdateReagentPanel() end
  reagentWas=want
@@ -837,6 +856,26 @@ function P.UpdateReagentPanel()
  if combat() then return end
  local ok,err=pcall(reagentRefresh)
  if not ok then reagentFailed(err) end
+end
+-- Shift+B opens every bag. The combined bag already carries the reagent drawer, so the client's
+-- own reagent bag window is closed again whenever it appears (only while the drawer is in use).
+local function suppressBlizzardReagent(frame)
+ if combat() or not reagentOn() or not frame:IsShown() then return end
+ local id=frame.GetBagID and frame:GetBagID() or (frame.GetID and frame:GetID())
+ if id~=REAGENT_BAG then return end
+ local manager=ContainerFrameSettingsManager
+ local ok,combined=false,false
+ if manager and manager.IsUsingCombinedBags then ok,combined=pcall(manager.IsUsingCombinedBags,manager) end
+ if ok and combined then frame:Hide() end
+end
+function P.HookBlizzardReagentFrame()
+ for i=1,13 do
+  local frame=_G['ContainerFrame'..i]
+  if frame and not frame.tbReagentGuard then
+   frame.tbReagentGuard=true
+   frame:HookScript('OnShow',function(self) if C_Timer then C_Timer.After(0,function() suppressBlizzardReagent(self) end) end end)
+  end
+ end
 end
 function P.HookReagentPanel()
  local f=ContainerFrameCombinedBags
@@ -1167,6 +1206,7 @@ function P.RingEditor()
  P.RefreshRingEditor();if ringEditor:IsShown() then ringEditor:Hide() elseif ForeverAssistShowEditor then ForeverAssistShowEditor(ringEditor) else ringEditor:Show() end
 end
 local squareBorder,roundMask,roundDecorations
+local squareApplied=false
 -- Close the gap between the zone header and the minimap (the room the mail icon used to take)
 -- and move the mail icon onto the map's top-left corner. Idempotent: it measures against the
 -- anchor the client set, so a client re-layout is simply measured again.
@@ -1206,7 +1246,7 @@ end
 local function scheduleCompact()
  if minimapPending or not C_Timer then return end
  minimapPending=true
- C_Timer.After(.05,function() minimapPending=false;P.ApplyCompactMinimap() end)
+ C_Timer.After(.05,function() minimapPending=false;pcall(P.ApplyCompactMinimap) end)
 end
 local minimapEvents=CreateFrame('Frame')
 for _,event in ipairs({'PLAYER_ENTERING_WORLD','UI_SCALE_CHANGED','DISPLAY_SIZE_CHANGED','PLAYER_REGEN_ENABLED','ZONE_CHANGED_NEW_AREA'}) do pcall(minimapEvents.RegisterEvent,minimapEvents,event) end
@@ -1219,6 +1259,8 @@ if UIParent_UpdateTopFramePositions then pcall(hooksecurefunc,'UIParent_UpdateTo
 
 function P.ApplySquareMinimap()
  if not Minimap or not Minimap.SetMaskTexture or combat() then return end
+ -- A round minimap that was never made square is left exactly as the client draws it.
+ if not settings().squareMinimap and not squareApplied then pcall(P.ApplyCompactMinimap);return end
  if roundMask==nil then
   roundMask=Minimap.GetMaskTexture and Minimap:GetMaskTexture() or 'Textures/MinimapMask'
   roundDecorations={}
@@ -1230,11 +1272,13 @@ function P.ApplySquareMinimap()
   squareBorder:SetBackdrop({edgeFile='Interface/Tooltips/UI-Tooltip-Border',edgeSize=12});squareBorder:SetBackdropBorderColor(.6,.48,.31,1)
   Minimap:HookScript('OnHide',function() squareBorder:Hide() end);Minimap:HookScript('OnShow',function() squareBorder:SetShown(settings().squareMinimap) end)
  end
- local enabled=settings().squareMinimap
+ local enabled=settings().squareMinimap and true or false
+ squareApplied=enabled or squareApplied
  Minimap:SetMaskTexture(enabled and 'Interface/Buttons/WHITE8X8' or roundMask)
+ if not enabled then squareApplied=false end
  for f,wasShown in pairs(roundDecorations) do if enabled then f:Hide() else f:SetShown(wasShown) end end
  squareBorder:SetShown(enabled and Minimap:IsShown())
- P.ApplyCompactMinimap()
+ pcall(P.ApplyCompactMinimap)
 end
 
 -- Proxy launchers leave each addon's original position, size and scripts intact.
@@ -1590,7 +1634,7 @@ function P.Event(_,event,a,b,c)
  elseif event=='TIME_PLAYED_MSG' then playedTotal,playedLevel,playedAt,levelPlayedAt=a,b,GetTime(),GetTime()
  elseif event=='QUEST_LOG_UPDATE' or event=='QUEST_DATA_LOAD_RESULT' then P.RefreshQuests()
  elseif event=='PLAYER_SWING' then P.Swing(a,b)
- elseif event=='MERCHANT_SHOW' then paused=false;P.CacheBuybacks()
+ elseif event=='MERCHANT_SHOW' then paused=false;P.CacheBuybacks();P.AutoRepair()
  elseif event=='MERCHANT_UPDATE' then P.CacheBuybacks()
  elseif event=='MERCHANT_CLOSED' then paused=false;ForeverAssistExtras.CancelAutomaticSale()
  elseif event=='MAIL_SHOW' then hookMail();P.PrefillMail()
