@@ -1,0 +1,6 @@
+package-as: Trailbound
+
+ignore:
+  - .github
+  - README.md
+  - LICENSE
