@@ -1,0 +1,26 @@
+
+name: Package and release addon
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Package and upload addon
+        uses: BigWigsMods/packager@v2
