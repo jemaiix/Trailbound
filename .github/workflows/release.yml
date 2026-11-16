@@ -15,7 +15,8 @@ jobs:
 
     env:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+  
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
