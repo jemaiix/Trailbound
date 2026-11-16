@@ -109,3 +109,17 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 - Rogue poison reminder (click to apply from your bags).
 - Automatic repair at vendors (Bags, banks & vendors): own gold, optionally guild funds; Shift skips it.
 - Hunter ammo reminder when fewer than 200 arrows or bullets are left.
+- Item tooltips also count items waiting in each character's mailbox (saved when the mailbox is opened).
+- Adds a sort button to the combined bag on characters where the client's cleanup button is missing.
+
+## 1.8.76
+- Vendors: shift-click an item and choose any quantity; it is bought as several stacks.
+- Mail: Ctrl+right-click an item in your bags with the Send tab open attaches every stack of it.
+- Junk manager shows the combined value of everything listed; level times hide at level 60.
+- Auction house: Search mats also searches the crafted item. Train all shows the total cost on hover.
+- Camp item tooltips show the buff they give. Lockbox tooltips no longer repeat the skill requirement.
+
+## 1.8.77
+- Fix: bags could refuse to open in combat. The addon no longer calls the client's own bag anchoring code (which can taint it); the reagent drawer lift and bag reset now move the bag's own anchor instead.
+- The fallback sort button now sits next to the bag's search bar.
+- Fallback sort button: fixed spot inside the frame, right of the search bar.

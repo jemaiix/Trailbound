@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.74'
+ForeverAssistPlay.Version='1.8.79'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -602,9 +602,30 @@ local function trainTick(elapsed)
  end
  say('Train all finished; '..training.learned..' purchase(s) requested. Unaffordable or unavailable services were skipped.');training=nil
 end
+-- Hover text for Train all: how many services can be learned and what they cost together.
+local function trainAllTooltip(self)
+ GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Train all')
+ local total,count=0,0
+ for i=1,(GetNumTrainerServices and GetNumTrainerServices() or 0) do
+  local name,a,b,c,rank=GetTrainerServiceInfo(i);local status=a
+  if a~='available' and a~='unavailable' and a~='used' then status=b end
+  if status=='available' then total=total+(GetTrainerServiceCost(i) or 0);count=count+1 end
+ end
+ if count==0 then GameTooltip:AddLine('Nothing available to learn right now.',.7,.7,.7)
+ else
+  GameTooltip:AddLine(count..' skill'..(count==1 and '' or 's')..' available',1,1,1)
+  GameTooltip:AddDoubleLine('Total cost',GetCoinTextureString and GetCoinTextureString(total) or tostring(total),1,.82,0,1,1,1)
+  local money=GetMoney()
+  if total>money then GameTooltip:AddLine('You are short by '..(GetCoinTextureString and GetCoinTextureString(total-money) or (total-money))..'; affordable ones are still learned.',1,.35,.35,true) end
+ end
+ GameTooltip:Show()
+end
 local function hookTrainer()
  local trainer=ClassTrainerFrame or TrainerFrame
- if trainer and not trainButton then trainButton=button(trainer,'Train all',15,-35,100,P.TrainAll) end
+ if trainer and not trainButton then
+  trainButton=button(trainer,'Train all',15,-35,100,P.TrainAll)
+  trainButton:HookScript('OnEnter',trainAllTooltip);trainButton:HookScript('OnLeave',function() GameTooltip:Hide() end)
+ end
 end
 -- Only the title strip receives drag input; item and utility buttons stay native.
 local bagFrameNames={'ContainerFrameCombinedBags','ContainerFrame1','ContainerFrame2','ContainerFrame3','ContainerFrame4','ContainerFrame5','ContainerFrame6'}
@@ -638,10 +659,52 @@ function P.ResetBags()
  if combat() then return end
  settings().bagPositions={};bagMoveApplied=false
  for _,name in ipairs(bagFrameNames) do local f=_G[name];if f and f.SetUserPlaced then f:SetUserPlaced(false) end end
- if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end
+ -- The client puts the bags back at their default spot the next time they open. Calling its own
+ -- anchor function from here would run Blizzard bag code in addon context, so it is not called.
+end
+-- Some characters end up without the client's bag cleanup button. When none is visible on the combined
+-- bag, add a sort button (right of the search bar) that runs the same bag sort.
+local sortButton
+local function nativeSortVisible(f)
+ for _,key in ipairs({'AutoSortButton','SortButton','CleanupButton','CleanUpButton','BagSortButton'}) do
+  local b=f[key];if b and b.IsShown and b:IsShown() then return true end
+ end
+ local global=_G.BagItemAutoSortButton
+ if global and global.IsShown and global:IsShown() then return true end
+ for _,child in ipairs({f:GetChildren()}) do
+  local name=child.GetName and child:GetName()
+  if name and child~=sortButton then
+   local lower=name:lower()
+   if (lower:find('sort',1,true) or lower:find('cleanup',1,true)) and child:IsShown() then return true end
+  end
+ end
+ return false
+end
+function P.EnsureSortButton()
+ local f=ContainerFrameCombinedBags
+ if not f or combat() or not C_Container or not C_Container.SortBags then return end
+ local needed=f:IsShown() and not nativeSortVisible(f)
+ if needed and not sortButton then
+  sortButton=CreateFrame('Button','TrailboundSortButton',f)
+  sortButton:SetSize(22,22)
+  sortButton:SetFrameLevel(f:GetFrameLevel()+10)
+  sortButton.icon=sortButton:CreateTexture(nil,'ARTWORK');sortButton.icon:SetAllPoints();sortButton.icon:SetTexture('Interface/ICONS/INV_Pet_Broom')
+  sortButton.hover=sortButton:CreateTexture(nil,'HIGHLIGHT');sortButton.hover:SetAllPoints();sortButton.hover:SetColorTexture(1,1,1,.18)
+  sortButton:SetScript('OnClick',function() if not combat() then C_Container.SortBags() end end)
+  sortButton:SetScript('OnEnter',function(self) GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Sort bags');GameTooltip:AddLine('Added by Trailbound: the bag cleanup button is missing on this character.',.7,.7,.7,true);GameTooltip:Show() end)
+  sortButton:SetScript('OnLeave',function() GameTooltip:Hide() end)
+ end
+ if sortButton then
+  -- Right of the search bar, inside the frame (the bag sits at the screen edge, so anchoring to the
+  -- search box itself could push the button off-screen). Same row as the search bar.
+  sortButton:ClearAllPoints();sortButton:SetPoint('TOPRIGHT',f,'TOPRIGHT',-14,-49)
+  sortButton:SetFrameLevel(f:GetFrameLevel()+20)
+  sortButton:SetShown(needed)
+ end
 end
 local function hookBags()
  if combat() then return end
+ pcall(P.EnsureSortButton)
  P.HookReagentPanel()
  P.HookBlizzardReagentFrame()
  local want=reagentOn()
@@ -649,8 +712,7 @@ local function hookBags()
  reagentWas=want
  -- Turning movement off hands the bags back to the native layout straight away.
  if not settings().moveBags and bagMoveApplied then
-  bagMoveApplied=false
-  if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end
+  bagMoveApplied=false -- default positions return the next time the bags open
  end
  for _,name in ipairs(bagFrameNames) do
   local f=_G[name]
@@ -692,22 +754,38 @@ local function hideReagentWindow()
  if reagentPanel then reagentPanel:Hide() end
  reagentHiding=false
 end
+-- Raise or lower the combined bag by the drawer height by moving its own anchor. The client's bag
+-- anchoring code is never called from here: running it from an addon can taint it, which is what
+-- stops bags opening in combat.
+local function setLift(f,lift)
+ lift=lift or 0
+ local applied=f.tbLiftApplied or 0
+ f.tbLift=lift
+ if math.abs(lift-applied)<.5 or combat() then return end
+ local saved=settings().moveBags and type(settings().bagPositions)=='table' and settings().bagPositions[f:GetName()]
+ if saved then P.ApplyBagPositions();f.tbLiftApplied=lift;return end
+ if f:GetNumPoints()~=1 then return end
+ local point,rel,relPoint,x,y=f:GetPoint(1)
+ if point and type(y)=='number' then f:SetPoint(point,rel,relPoint,x,y+(lift-applied));f.tbLiftApplied=lift end
+end
 function P.ClearReagents()
  for _,b in ipairs(reagentButtons) do b:Hide() end
  hideReagentWindow()
  local f=ContainerFrameCombinedBags
- if f and (f.tbLift or 0)>0 then f.tbLift=0;if UpdateContainerFrameAnchors and not combat() then UpdateContainerFrameAnchors() end end
+ if f and (f.tbLift or 0)>0 then setLift(f,0) end
 end
 -- Runs right after the client anchors the bags: raise the combined bag by the drawer height.
 function P.LiftForReagents()
  local f=ContainerFrameCombinedBags
- local lift=f and f.tbLift or 0
+ if not f then return end
+ f.tbLiftApplied=0 -- the client has just re-anchored the bag at its default spot
+ local lift=f.tbLift or 0
  if lift<=0 or combat() or not f:IsShown() then return end
  local saved=settings().moveBags and type(settings().bagPositions)=='table' and settings().bagPositions[f:GetName()]
  if saved then return end
  if f:GetNumPoints()~=1 then return end
  local point,rel,relPoint,x,y=f:GetPoint(1)
- if point and type(y)=='number' then f:SetPoint(point,rel,relPoint,x,y+lift) end
+ if point and type(y)=='number' then f:SetPoint(point,rel,relPoint,x,y+lift);f.tbLiftApplied=lift end
 end
 local function reagentFailed(err)
  if reagentBroken then return end
@@ -825,7 +903,7 @@ local function reagentRefresh()
  -- A drawer flush under the bag, as wide as the bag, with slots in the bag's own columns.
  window:ClearAllPoints();window:SetPoint('TOPLEFT',f,'BOTTOMLEFT',0,1);window:SetPoint('TOPRIGHT',f,'BOTTOMRIGHT',0,1);window:SetHeight(height);window:Show()
  local lift=height-1
- if math.abs((f.tbLift or 0)-lift)>.5 then f.tbLift=lift;if UpdateContainerFrameAnchors then UpdateContainerFrameAnchors() end end
+ if math.abs((f.tbLift or 0)-lift)>.5 then setLift(f,lift) end
  local art=nativeEmptyArt(f)
  for slot=1,slots do
   local b=reagentButtons[slot] or reagentSlot(window,slot);reagentButtons[slot]=b

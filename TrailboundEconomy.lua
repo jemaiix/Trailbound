@@ -1,5 +1,5 @@
 -- Read-only market observations and conservative, per-craft estimates.
-ForeverAssistEconomy={Version='1.8.74'}
+ForeverAssistEconomy={Version='1.8.79'}
 local E=ForeverAssistEconomy
 local account,settings,options
 local panels,hooks={},{}
@@ -166,6 +166,11 @@ function E.SearchMats(recipe,crafts)
   else local term={searchString=name,isExact=true,quantity=quantity*crafts};terms[#terms+1]=term;seen[name]=term end
  end
  if #terms==0 then return end
+ -- Also look up the crafted item itself so its price is saved next to the material costs.
+ local product=num(recipe.itemID) and E.Item(recipe.itemID)
+ if product and product.name and not seen[product.name] then
+  local term={searchString=product.name,isExact=true,quantity=1,product=true};terms[#terms+1]=term;seen[product.name]=term
+ end
  E.pendingSearch=terms;E.SearchPending()
 end
 function E.SearchPending()
@@ -191,7 +196,7 @@ function E.SearchNext()
  if C_AuctionHouse and C_AuctionHouse.SendBrowseQuery then
   if C_AuctionHouse.IsThrottledMessageSystemReady and not C_AuctionHouse.IsThrottledMessageSystemReady()then return end
   local sorts=Enum and Enum.AuctionHouseSortOrder and {{sortOrder=Enum.AuctionHouseSortOrder.Price,reverseSort=false}}or {}
-   local ok=pcall(C_AuctionHouse.SendBrowseQuery,{searchString=term,sorts=sorts,filters={},itemClassFilters={}});if ok then print('|cffd2b077Trailbound:|r Searching '..term..' — need '..entry.quantity);q.waiting=true;q.started=GetTime();return end
+   local ok=pcall(C_AuctionHouse.SendBrowseQuery,{searchString=term,sorts=sorts,filters={},itemClassFilters={}});if ok then print('|cffd2b077Trailbound:|r Searching '..term..(entry.product and ' (crafted item)' or (' — need '..entry.quantity)));q.waiting=true;q.started=GetTime();return end
  elseif QueryAuctionItems then local ok=pcall(QueryAuctionItems,term,nil,nil,0,false,nil,false,true);if ok then print('|cffd2b077Trailbound:|r Searching '..term..' — need '..entry.quantity);q.waiting=true;q.started=GetTime();return end end
  print('|cffd2b077Trailbound:|r This client cannot start material searches. Install Auctionator for multi-item searches.');E.nativeSearch=nil
 end

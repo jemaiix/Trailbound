@@ -1,7 +1,7 @@
 -- Right-click shortcuts: lockboxes (pick the lock, bags and trade) and untranslated mage scrolls
 -- (Comprehend Scroll), plus the Lockpicking skill each box needs on its tooltip.
 -- Item and skill data only; no spawn or loot data.
-ForeverAssistLockbox={Version='1.8.74'}
+ForeverAssistLockbox={Version='1.8.79'}
 local L=ForeverAssistLockbox
 local PICK_LOCK=1804
 local function combat() return InCombatLockdown and InCombatLockdown() end
@@ -109,20 +109,6 @@ local function addTooltipLines(tooltip,id)
   return
  end
  tooltip.tbLockboxFor=id
- local alreadyShown=false
- local name=tooltip.GetName and tooltip:GetName()
- if name then
-  for i=1,tooltip:NumLines() do
-   local fs=_G[name..'TextLeft'..i];local text=fs and fs:GetText()
-   if text and safe(text) and type(text)=='string' and text:find('Lockpicking') then alreadyShown=true;break end
-  end
- end
- if not alreadyShown then
-  local have=playerSkill()
-  local r,g,b=1,.82,0
-  if have then if have>=need then r,g,b=.35,1,.35 else r,g,b=1,.25,.25 end end
-  tooltip:AddLine(('Requires Lockpicking (%d)'):format(need),r,g,b)
- end
  if canPick(need) then tooltip:AddLine('Right-click to pick the lock',.55,.8,1) end
  tooltip:Show()
 end

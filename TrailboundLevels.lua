@@ -1,5 +1,5 @@
 -- Character milestones use the server's /played counters, never wall-clock dates.
-ForeverAssistLevels={Version='1.8.74'}
+ForeverAssistLevels={Version='1.8.79'}
 local L=ForeverAssistLevels
 local character,settings,window,total,levelSeconds,sampledAt
 local function publicNumber(v)return (not issecretvalue or not issecretvalue(v))and type(v)=='number'and v>=0 end
@@ -27,7 +27,8 @@ function L.Apply()
  local opacity=math.max(0,math.min(1,tonumber(s.levelTimesBackgroundOpacity)or 0))
  window:SetBackdropColor(.22,.17,.12,opacity);window:SetBackdropBorderColor(.6,.48,.31,opacity)
  if not InCombatLockdown()then window:ClearAllPoints();window:SetPoint('CENTER',UIParent,'CENTER',p and p[1]or -370,p and p[2]or 120)end
- window:SetShown(s.levelTimes~=false)
+ local atCap=(UnitLevel('player')or 0)>=60
+ window:SetShown(s.levelTimes~=false and not atCap)
  L.Refresh()
 end
 local function create()
@@ -54,6 +55,7 @@ local function create()
  window:SetScript('OnLeave',function()GameTooltip:Hide()end)
 end
 function L.Refresh()
+ if window and window:IsShown() and (UnitLevel('player')or 0)>=60 then window:Hide();return end
  L.UpdateMouse()
  if not character or not window then return end
  local level=UnitLevel('player');if not publicNumber(level)or level<1 then return end

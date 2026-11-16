@@ -303,7 +303,7 @@ local function Button(parent, text, x, y, width, callback)
     if ForeverAssistStyleButton then ForeverAssistStyleButton(button) end
     return button
 end
-local junkWindow, junkContent, junkRows, junkNote, junkSell, junkDelete, junkLoot
+local junkWindow, junkContent, junkRows, junkNote, junkSell, junkDelete, junkLoot, junkTotal
 function E.RefreshJunk()
     if not junkWindow or not junkWindow:IsShown() then return end
     local list, missing = E.ScanJunk(false)
@@ -337,6 +337,11 @@ function E.RefreshJunk()
     junkSell:SetEnabled(MerchantOpen() and not sale and not InCombatLockdown())
     junkDelete:SetEnabled(#list>0 and not missing and not InCombatLockdown())
     if junkLoot then junkLoot:SetEnabled(not InCombatLockdown()) end
+    local worth=0
+    for _,row in ipairs(list) do if row.price then worth=worth+row.price*row.count end end
+    if junkTotal then
+        junkTotal:SetText(#list>0 and ("Listed items are worth "..ForeverAssistMoney(worth)..(missing and " (+ some still loading)" or "").." in total") or "Nothing listed")
+    end
     junkNote:SetText("Lowest stack vendor value first. Delete removes a STACK.\nRight-click removes from list only. Drop items to add them back.")
 end
 function E.ToggleJunk()
@@ -347,6 +352,7 @@ function E.ToggleJunk()
         local scroll=CreateFrame("ScrollFrame",nil,junkWindow,"UIPanelScrollFrameTemplate");scroll:SetPoint("TOPLEFT",24,-48);scroll:SetPoint("BOTTOMRIGHT",-44,112)
         junkContent=CreateFrame("Frame",nil,scroll);junkContent:SetSize(330,1);scroll:SetScrollChild(junkContent)
         scroll:SetScript("OnReceiveDrag",E.AddCursorJunk);junkContent:SetScript("OnReceiveDrag",E.AddCursorJunk)
+        junkTotal=junkWindow:CreateFontString(nil,"OVERLAY","TrailboundSmall");junkTotal:SetPoint("TOPLEFT",26,-31);junkTotal:SetWidth(350);junkTotal:SetJustifyH("LEFT");junkTotal:SetTextColor(1,.82,0)
         junkNote=junkWindow:CreateFontString(nil,"OVERLAY","TrailboundSmall");junkNote:SetPoint("BOTTOMLEFT",24,110);junkNote:SetWidth(350);junkNote:SetJustifyH("LEFT")
         junkSell=Button(junkWindow,"Sell listed items",24,-282,166,function() E.StartSale(false);E.RefreshJunk() end)
         junkDelete=Button(junkWindow,"Delete lowest stack",202,-282,174,function()

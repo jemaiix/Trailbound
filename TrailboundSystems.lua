@@ -1,5 +1,5 @@
 -- Gathering, account inventory, separated training, professions and camera.
-ForeverAssistSystems = {Version="1.8.74"}
+ForeverAssistSystems = {Version="1.8.79"}
 local S = ForeverAssistSystems
 local account, character, getSettings, currentKey
 local moneyReadyAt=0
@@ -267,6 +267,30 @@ function S.RecordMoney(force)
     character.lastMoney=money;currentKey=key
     if changed then if S.RefreshGoldDisplays then S.RefreshGoldDisplays() end;if S.RefreshInventory then S.RefreshInventory() end end
 end
+-- Mail: attachments in the inbox are saved per character whenever the mailbox is open, so items
+-- waiting in mail show up in item counts on every character, until the mailbox is opened again.
+function S.RecordMail()
+    if not account or not currentKey or not GetInboxNumItems or not GetInboxItem then return end
+    local record=account.characters[currentKey]
+    if not record then return end
+    local items={}
+    local count=GetInboxNumItems() or 0
+    for i=1,count do
+        for j=1,(ATTACHMENTS_MAX_RECEIVE or 16) do
+            local link=GetInboxItemLink and GetInboxItemLink(i,j)
+            if link and (not issecretvalue or not issecretvalue(link)) and type(link)=='string' then
+                local id=tonumber(link:match('item:(%d+)'))
+                local a,b,c,d=GetInboxItem(i,j)
+                local qty=type(d)=='number' and d or type(c)=='number' and c or 1
+                if id then items[id]=(items[id] or 0)+qty end
+            end
+        end
+    end
+    record.mail={items=items,updatedAt=time()}
+end
+local mailEvents=CreateFrame('Frame')
+for _,event in ipairs({'MAIL_SHOW','MAIL_INBOX_UPDATE'}) do mailEvents:RegisterEvent(event) end
+mailEvents:SetScript('OnEvent',function() pcall(S.RecordMail) end)
 function S.Snapshot()
     if not account or moneySessionEnding then return false end
     local name=UnitName('player');if not name or name=='Unknown' then return false end
@@ -383,7 +407,7 @@ function S.ItemLocations(id)
         local identity=tostring(name)..'|'..tostring(realm)
         local entry=byIdentity[identity]
         if not entry then
-            entry={name=(realm and realm~='' and realm~=myRealm) and (name..' - '..realm) or name,bags=0,bank=0,current=(name==me and realm==myRealm)}
+            entry={name=(realm and realm~='' and realm~=myRealm) and (name..' - '..realm) or name,bags=0,bank=0,mail=0,current=(name==me and realm==myRealm)}
             byIdentity[identity]=entry;list[#list+1]=entry
         end
         return entry
@@ -391,6 +415,8 @@ function S.ItemLocations(id)
     for _,record in pairs(account.characters or {}) do
         local count=record.items and record.items[id] or 0
         if count>0 then entryFor(record.name,record.realm).bags=count end
+        local mailCount=record.mail and record.mail.items and record.mail.items[id] or 0
+        if mailCount>0 then entryFor(record.name,record.realm).mail=mailCount end
     end
     for _,bankRecord in pairs(account.bankCharacters or {}) do
         local count=BankCount(bankRecord,id)
@@ -400,20 +426,21 @@ function S.ItemLocations(id)
         if a.current~=b.current then return a.current end
         return a.name<b.name
     end)
-    local bags,bank=0,0
-    for _,entry in ipairs(list) do bags=bags+entry.bags;bank=bank+entry.bank end
-    return list,bags,bank
+    local bags,bank,mail=0,0,0
+    for _,entry in ipairs(list) do bags=bags+entry.bags;bank=bank+entry.bank;mail=mail+(entry.mail or 0) end
+    return list,bags,bank,mail
 end
 function S.ItemTooltip(tooltip,id)
     if not account or not getSettings().accountBags or not id or id==6948 or id==2901 or id==7005 or id==5956 then return end
     if tooltip.faInventoryItem==id then return end
     tooltip.faInventoryItem=id
-    local list,bags,bank=S.ItemLocations(id)
+    local list,bags,bank,mail=S.ItemLocations(id)
     if #list==0 then return end
     local function where(entry)
         local parts={}
         if entry.bags>0 then parts[#parts+1]='Bags '..entry.bags end
         if entry.bank>0 then parts[#parts+1]='Bank '..entry.bank end
+        if (entry.mail or 0)>0 then parts[#parts+1]='Mail '..entry.mail end
         return table.concat(parts,'   ')
     end
     tooltip:AddLine(" ")
@@ -422,8 +449,13 @@ function S.ItemTooltip(tooltip,id)
         local label=entry.current and (entry.name..' (this character)') or entry.name
         if entry.current then tooltip:AddDoubleLine(label,where(entry),0.6,0.9,1,1,1,1) else tooltip:AddDoubleLine(label,where(entry),1,1,1,1,1,1) end
     end
-    if #list>1 or (bags>0 and bank>0) then
-        tooltip:AddDoubleLine("Total",(bags>0 and ('Bags '..bags) or '')..((bags>0 and bank>0) and '   ' or '')..(bank>0 and ('Bank '..bank) or ''),0.3,1,0.6,0.3,1,0.6)
+    local kinds=(bags>0 and 1 or 0)+(bank>0 and 1 or 0)+(mail>0 and 1 or 0)
+    if #list>1 or kinds>1 then
+        local parts={}
+        if bags>0 then parts[#parts+1]='Bags '..bags end
+        if bank>0 then parts[#parts+1]='Bank '..bank end
+        if mail>0 then parts[#parts+1]='Mail '..mail end
+        tooltip:AddDoubleLine("Total",table.concat(parts,'   '),0.3,1,0.6,0.3,1,0.6)
     end
 end
 local tooltipInstalled=false
