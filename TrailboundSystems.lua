@@ -1,5 +1,5 @@
 -- Gathering, account inventory, separated training, professions and camera.
-ForeverAssistSystems = {Version="1.8.79"}
+ForeverAssistSystems = {Version="1.8.84"}
 local S = ForeverAssistSystems
 local account, character, getSettings, currentKey
 local moneyReadyAt=0
@@ -232,7 +232,7 @@ end
 local function CharacterKey()
     return ResolveCharacterKey(UnitName("player"),(GetRealmName and GetRealmName() or "Realm"))
 end
-local function Label(record) return record.name.." - "..record.realm end
+local function Label(record) return ForeverAssistCharacterLabel(record) end
 function S.ReadMoney()
     if not GetMoney then return nil,"GetMoney is unavailable" end
     local ok,value=pcall(GetMoney)
@@ -403,11 +403,15 @@ end
 function S.ItemLocations(id)
     local byIdentity,list={}, {}
     local me,myRealm=UnitName('player'),GetRealmName and GetRealmName()
-    local function entryFor(name,realm)
+    local fullNames={}
+    for _,record in pairs(account.characters or {}) do if record.mailName then fullNames[tostring(record.name)..'|'..tostring(record.realm)]=record.mailName end end
+    local function entryFor(name,realm,fullName)
         local identity=tostring(name)..'|'..tostring(realm)
         local entry=byIdentity[identity]
         if not entry then
-            entry={name=(realm and realm~='' and realm~=myRealm) and (name..' - '..realm) or name,bags=0,bank=0,mail=0,current=(name==me and realm==myRealm)}
+            local shown=fullNames[identity] or fullName or name
+            if name==me and realm==myRealm and ForeverAssistFullMailName then shown=ForeverAssistFullMailName('player') or shown end
+            entry={name=(realm and realm~='' and realm~=myRealm) and (shown..' - '..ForeverAssistRealmLabel(realm)) or shown,bags=0,bank=0,mail=0,current=(name==me and realm==myRealm)}
             byIdentity[identity]=entry;list[#list+1]=entry
         end
         return entry
@@ -420,7 +424,7 @@ function S.ItemLocations(id)
     end
     for _,bankRecord in pairs(account.bankCharacters or {}) do
         local count=BankCount(bankRecord,id)
-        if count>0 then entryFor(bankRecord.name,bankRecord.realm).bank=count end
+        if count>0 then entryFor(bankRecord.name,bankRecord.realm,bankRecord.mailName).bank=count end
     end
     table.sort(list,function(a,b)
         if a.current~=b.current then return a.current end

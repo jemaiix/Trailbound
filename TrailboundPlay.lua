@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.79'
+ForeverAssistPlay.Version='1.8.84'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -683,25 +683,85 @@ end
 function P.EnsureSortButton()
  local f=ContainerFrameCombinedBags
  if not f or combat() or not C_Container or not C_Container.SortBags then return end
- local needed=f:IsShown() and not nativeSortVisible(f)
- if needed and not sortButton then
+ if not sortButton then
   sortButton=CreateFrame('Button','TrailboundSortButton',f)
   sortButton:SetSize(22,22)
-  sortButton:SetFrameLevel(f:GetFrameLevel()+10)
   sortButton.icon=sortButton:CreateTexture(nil,'ARTWORK');sortButton.icon:SetAllPoints();sortButton.icon:SetTexture('Interface/ICONS/INV_Pet_Broom')
   sortButton.hover=sortButton:CreateTexture(nil,'HIGHLIGHT');sortButton.hover:SetAllPoints();sortButton.hover:SetColorTexture(1,1,1,.18)
   sortButton:SetScript('OnClick',function() if not combat() then C_Container.SortBags() end end)
-  sortButton:SetScript('OnEnter',function(self) GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Sort bags');GameTooltip:AddLine('Added by Trailbound: the bag cleanup button is missing on this character.',.7,.7,.7,true);GameTooltip:Show() end)
-  sortButton:SetScript('OnLeave',function() GameTooltip:Hide() end)
  end
- if sortButton then
-  -- Right of the search bar, inside the frame (the bag sits at the screen edge, so anchoring to the
-  -- search box itself could push the button off-screen). Same row as the search bar.
-  sortButton:ClearAllPoints();sortButton:SetPoint('TOPRIGHT',f,'TOPRIGHT',-14,-49)
-  sortButton:SetFrameLevel(f:GetFrameLevel()+20)
-  sortButton:SetShown(needed)
+ -- Right of the search bar, inside the frame (the bag sits at the screen edge, so anchoring to the
+ -- search box itself could push the button off-screen). Same row as the search bar.
+ sortButton:ClearAllPoints();sortButton:SetPoint('TOPRIGHT',f,'TOPRIGHT',-14,-49)
+ sortButton:SetFrameLevel(f:GetFrameLevel()+20)
+ sortButton:SetShown(not nativeSortVisible(f))
+end
+-- The bank window can lack the client's cleanup button as well. Same fallback: a broom button beside the
+-- bank's search box (or at its top-right if no search box is found), only while no native one is visible.
+local bankSortButton
+local function bankNativeSortVisible(frame)
+ local panel=frame.BankPanel
+ for _,owner in ipairs({frame,panel}) do
+  if owner then
+   for _,key in ipairs({'AutoSortButton','SortButton','CleanupButton','CleanUpButton','BankItemAutoSortButton'}) do
+    local b=owner[key];if b and b.IsShown and b:IsShown() then return true end
+   end
+   for _,child in ipairs({owner:GetChildren()}) do
+    local name=child~=bankSortButton and child.GetName and child:GetName()
+    if name then local lower=name:lower();if (lower:find('sort',1,true) or lower:find('cleanup',1,true)) and child:IsShown() then return true end end
+   end
+  end
+ end
+ local global=_G.BankItemAutoSortButton
+ return global and global.IsShown and global:IsShown() or false
+end
+local function findBankSearch(frame)
+ for _,owner in ipairs({frame,frame.BankPanel}) do
+  if owner then
+   for _,key in ipairs({'SearchBox','ItemSearchBox','searchBox'}) do
+    local box=owner[key];if box and box.GetObjectType and box:GetObjectType()=='EditBox' then return box end
+   end
+   for _,child in ipairs({owner:GetChildren()}) do
+    if child.GetObjectType and child:GetObjectType()=='EditBox' then return child end
+   end
+  end
  end
 end
+local function sortBank()
+ local panel=BankFrame and BankFrame.BankPanel
+ local bankType=panel and panel.GetActiveBankType and panel:GetActiveBankType()
+ local C=C_Container
+ if C and C.SortBank and bankType~=nil then C.SortBank(bankType)
+ elseif C and C.SortBankBags then C.SortBankBags()
+ elseif SortBankBags then SortBankBags() end
+end
+function P.EnsureBankSortButton()
+ local frame=BankFrame
+ if not frame or combat() then return end
+ if not bankSortButton then
+  bankSortButton=CreateFrame('Button','TrailboundBankSortButton',frame)
+  bankSortButton:SetSize(22,22)
+  bankSortButton.icon=bankSortButton:CreateTexture(nil,'ARTWORK');bankSortButton.icon:SetAllPoints();bankSortButton.icon:SetTexture('Interface/ICONS/INV_Pet_Broom')
+  bankSortButton.hover=bankSortButton:CreateTexture(nil,'HIGHLIGHT');bankSortButton.hover:SetAllPoints();bankSortButton.hover:SetColorTexture(1,1,1,.18)
+  bankSortButton:SetScript('OnClick',function() if not combat() then pcall(sortBank) end end)
+ end
+ bankSortButton:ClearAllPoints()
+ local search=findBankSearch(frame)
+ if search then bankSortButton:SetPoint('LEFT',search,'RIGHT',6,0) else bankSortButton:SetPoint('TOPRIGHT',frame,'TOPRIGHT',-50,-34) end
+ bankSortButton:SetFrameLevel(frame:GetFrameLevel()+20)
+ bankSortButton:SetShown(not bankNativeSortVisible(frame))
+end
+local bankSortEvents=CreateFrame('Frame')
+for _,e in ipairs({'BANKFRAME_OPENED','PLAYER_INTERACTION_MANAGER_FRAME_SHOW'}) do pcall(bankSortEvents.RegisterEvent,bankSortEvents,e) end
+bankSortEvents:SetScript('OnEvent',function()
+ if not C_Timer then return end
+ C_Timer.After(0,function() pcall(P.EnsureBankSortButton) end)
+ C_Timer.After(.4,function() pcall(P.EnsureBankSortButton) end)
+ if BankFrame and not BankFrame.tbSortHooked then
+  BankFrame.tbSortHooked=true
+  BankFrame:HookScript('OnShow',function() pcall(P.EnsureBankSortButton);C_Timer.After(.3,function() pcall(P.EnsureBankSortButton) end) end)
+ end
+end)
 local function hookBags()
  if combat() then return end
  pcall(P.EnsureSortButton)
@@ -959,9 +1019,9 @@ function P.HookReagentPanel()
  local f=ContainerFrameCombinedBags
  if not f or f.tbReagentPanelHooked then return end
  f.tbReagentPanelHooked=true
- f:HookScript('OnShow',function() reagentDismissed=false;P.UpdateReagentPanel();if C_Timer then C_Timer.After(0,P.UpdateReagentPanel) end end)
+ f:HookScript('OnShow',function() reagentDismissed=false;pcall(P.EnsureSortButton);P.UpdateReagentPanel();if C_Timer then C_Timer.After(0,P.UpdateReagentPanel);C_Timer.After(.3,function() pcall(P.EnsureSortButton) end) end end)
  f:HookScript('OnHide',function() hideReagentWindow() end)
- if type(f.UpdateItemSlots)=='function' then hooksecurefunc(f,'UpdateItemSlots',function() P.UpdateReagentPanel() end) end
+ if type(f.UpdateItemSlots)=='function' then hooksecurefunc(f,'UpdateItemSlots',function() pcall(P.EnsureSortButton);P.UpdateReagentPanel() end) end
  reagentEvents=CreateFrame('Frame')
  for _,event in ipairs({'BAG_UPDATE_DELAYED','ITEM_LOCK_CHANGED','BAG_UPDATE_COOLDOWN','PLAYER_REGEN_ENABLED'}) do reagentEvents:RegisterEvent(event) end
  reagentEvents:SetScript('OnEvent',function() if ContainerFrameCombinedBags:IsShown() then P.UpdateReagentPanel() end end)
@@ -992,6 +1052,14 @@ end
 local bagWarningEvents=CreateFrame('Frame')
 for _,event in ipairs({'BAG_UPDATE_DELAYED','PLAYER_ENTERING_WORLD'}) do bagWarningEvents:RegisterEvent(event) end
 bagWarningEvents:SetScript('OnEvent',function() P.UpdateBagWarning() end)
+-- Install the bag hooks and the sort button as soon as the character is in the world, instead of
+-- waiting for the first bag event.
+local bagLoginFrame=CreateFrame('Frame');bagLoginFrame:RegisterEvent('PLAYER_ENTERING_WORLD');bagLoginFrame:RegisterEvent('PLAYER_REGEN_ENABLED')
+bagLoginFrame:SetScript('OnEvent',function()
+ if not C_Timer then return end
+ C_Timer.After(.5,function() if not combat() then pcall(P.HookReagentPanel);pcall(P.HookBlizzardReagentFrame);pcall(P.EnsureSortButton) end end)
+ C_Timer.After(3,function() if not combat() then pcall(P.EnsureSortButton) end end)
+end)
 -- Camp IDs are Forever spell records, not assumed buff names or fixed durations.
 local campWarned,nearbyWas,tentWas={},false,false
 local campSit,campTimer,campAura,campVisibility

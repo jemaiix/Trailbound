@@ -1,5 +1,5 @@
 -- Character milestones use the server's /played counters, never wall-clock dates.
-ForeverAssistLevels={Version='1.8.79'}
+ForeverAssistLevels={Version='1.8.84'}
 local L=ForeverAssistLevels
 local character,settings,window,total,levelSeconds,sampledAt
 local function publicNumber(v)return (not issecretvalue or not issecretvalue(v))and type(v)=='number'and v>=0 end
@@ -13,7 +13,7 @@ function L.Time(seconds)
 end
 -- The window ignores the mouse (clicks fall through) unless Shift is held or the layout edit mode is on.
 function L.UpdateMouse()
- if not window or InCombatLockdown()then return end
+ if not window then return end
  local on=(IsShiftKeyDown and IsShiftKeyDown())or(ForeverAssistLayout and ForeverAssistLayout.active)or false
  on=on and true or false
  if window:IsMouseEnabled()~=on then
@@ -34,9 +34,9 @@ end
 local function create()
  window=CreateFrame('Frame','ForeverAssistLevelTimes',UIParent,'BackdropTemplate');window:SetWidth(230);window:SetClampedToScreen(true);window:SetMovable(true);window:EnableMouse(false);window:RegisterForDrag('LeftButton')
  TrailboundTheme.Panel(window,true)
- window:SetScript('OnDragStart',function(self)if not InCombatLockdown()then self:StartMoving()end end)
+ window:SetScript('OnDragStart',function(self)self:StartMoving()end)
  window:SetScript('OnDragStop',function(self)
-  self:StopMovingOrSizing();if InCombatLockdown()then return end
+  self:StopMovingOrSizing()
   local x,y=self:GetCenter();local ux,uy=UIParent:GetCenter();local scale=self:GetEffectiveScale()/UIParent:GetEffectiveScale()
   if x and ux then settings().levelTimesPosition={x*scale-ux,y*scale-uy}end
  end)

@@ -92,3 +92,23 @@ function ForeverAssistFullMailName(unit)
   end
  end
 end
+-- Realm names like "CAMWOW EU5 Realm 2 PvP" are shown as just the server type (PvP, PvE, RP, RP-PvP).
+function ForeverAssistRealmLabel(realm)
+ if type(realm)~='string' or realm=='' then return realm or '' end
+ local text=' '..realm:lower():gsub('[%-_/]',' ')..' '
+ local rp=text:find('%srp%s')~=nil or text:find('roleplay',1,true)~=nil
+ local pvp=text:find('pvp',1,true)~=nil
+ local pve=text:find('pve',1,true)~=nil or text:find('%snormal%s')~=nil
+ if rp and pvp then return 'RP-PvP' end
+ if rp then return 'RP' end
+ if pvp then return 'PvP' end
+ if pve then return 'PvE' end
+ if text:find('hardcore',1,true) then return 'Hardcore' end
+ return realm
+end
+-- First and second name together (e.g. "Tobin Stormhammer"), then the server type.
+function ForeverAssistCharacterLabel(record,fullName)
+ if type(record)~='table' then return '' end
+ local name=fullName or record.mailName or record.name or '?'
+ return name..' - '..ForeverAssistRealmLabel(record.realm)
+end

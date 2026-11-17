@@ -123,3 +123,20 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 - Fix: bags could refuse to open in combat. The addon no longer calls the client's own bag anchoring code (which can taint it); the reagent drawer lift and bag reset now move the bag's own anchor instead.
 - The fallback sort button now sits next to the bag's search bar.
 - Fallback sort button: fixed spot inside the frame, right of the search bar.
+
+## 1.8.80
+- Sleeping bag reminder stops at level 60.
+- Gossip auto-select ignores guards and information NPCs (only vendors, banks and trainers with few options).
+- Fallback sort button: no tooltip, created at login and shown as soon as the bag opens.
+
+## 1.8.81
+- Hunter ammo reminder: ammo type read from the weapon class and type name (guns use bullets), with a fallback to the equipped ammo. `/tb ammo` shows what it detects.
+- Bank window gets the same fallback sort button when the client's cleanup button is missing.
+
+## 1.8.83
+- Other characters' bags, banks and tooltips show first and second name; realms show as PvP / PvE / RP / RP-PvP.
+- Junk manager: delete works in combat; selling sends items in batches (much faster).
+- Level times window handles Shift/drag in combat; sort buttons are rechecked when combat ends.
+
+## 1.8.84
+- Fix: shift-click vendor quantity prompt errored on clients without GetMerchantItemInfo (now uses C_MerchantFrame.GetItemInfo).

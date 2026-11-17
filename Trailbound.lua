@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.79
+-- Trailbound 1.8.84
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -56,15 +56,16 @@ local function Print(msg) print("|cffd2b077Trailbound:|r " .. msg) end
 --------------------------------------------------------------------
 local ICON_VENDOR, ICON_TRAINER, ICON_BANKER = 132060, 132058, 132057
 
-local function OptionKind(o)
+local function OptionKind(o, allowNameMatch)
     if o.type then return o.type end
     local icon = o.overrideIconID or o.icon
     if icon == ICON_VENDOR then return "vendor" end
     if icon == ICON_TRAINER then return "trainer" end
     if icon == ICON_BANKER then return "banker" end
-    -- Banker gossip is named "The bank" (or mentions a deposit box) in the options list.
+    -- A banker's single option is named "The bank" / mentions a deposit box. Only trusted on NPCs with
+    -- very few options: guards list "Bank" among many destinations and must not be auto-picked.
     local name = o.name
-    if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name:lower():find("bank", 1, true) then return "banker" end
+    if allowNameMatch and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name:lower():find("bank", 1, true) then return "banker" end
 end
 
 local function HandleGossip()
@@ -87,8 +88,12 @@ local function HandleGossip()
         end
     end
 
-    for _, o in ipairs(C_GossipInfo.GetOptions() or {}) do
-        local kind = OptionKind(o)
+    local options = C_GossipInfo.GetOptions() or {}
+    -- Guards and other information NPCs list many destinations (bank, inn, trainers, vendors...) that
+    -- merely show directions. Real vendors, bankers and class trainers have only a few options.
+    if #options >= 5 then return end
+    for _, o in ipairs(options) do
+        local kind = OptionKind(o, #options <= 2)
         if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) or (kind == "banker" and DB.gossipBank) then
             C_GossipInfo.SelectOption(o.gossipOptionID)
             return
@@ -1177,7 +1182,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.79 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.84 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
@@ -1206,6 +1211,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
     elseif msg == "levels" then Toggle('levelTimes','Level-times window',function()ForeverAssistLevels.Apply()end)
     elseif msg == "bags" then ForeverAssistSystems.ToggleInventory()
     elseif msg == "professions" then ForeverAssistSystems.ToggleProfessions()
+    elseif msg == "ammo" then ForeverAssistReminders.AmmoDebug()
     elseif msg == "debug" then
         for _, o in ipairs((C_GossipInfo and C_GossipInfo.GetOptions()) or {}) do
             Print(("option '%s' type=%s icon=%s"):format(tostring(o.name), tostring(o.type), tostring(o.icon)))

@@ -56,12 +56,12 @@ function E.ForgetCharacter(key)
     end
     if ForeverAssistSystems then ForeverAssistSystems.RefreshInventory();ForeverAssistSystems.RefreshGoldDisplays() end
     if ForeverAssistBank then ForeverAssistBank.Refresh() end
-    Print("Forgot "..r.name.." - "..r.realm.." (saved bags, bank and money).");return true
+    Print("Forgot "..ForeverAssistCharacterLabel(r).." (saved bags, bank and money).");return true
 end
 function E.RequestForgetCharacter(key)
     if not E.CanForgetCharacter(key) then Print("Select an offline character to forget.");return end
     local r=(account.characters or {})[key] or (account.bankCharacters or {})[key] or (account.goldLedger or {})[key] or (account.characterBackups or {})[key]
-    StaticPopup_Show("FOREVERASSIST_FORGET_CHARACTER",r.name.." - "..r.realm,nil,key)
+    StaticPopup_Show("FOREVERASSIST_FORGET_CHARACTER",ForeverAssistCharacterLabel(r),nil,key)
 end
 local function ProfileName(name)
     name=(name or ""):match("^%s*(.-)%s*$")
@@ -174,6 +174,7 @@ local autoSaleDelay
 -- One request at a time, confirmed against the bag before advancing.
 -- Short polling removes the old 200 ms pause without flooding the vendor.
 local saleInterval = 0.05
+local SALE_BATCH = 8
 function E.RequestAutoSale() autoSaleDelay = saleInterval end
 local function StopSale(reason)
     local finished = sale
@@ -215,34 +216,38 @@ local function SaleTick(elapsed)
     saleClock = (saleClock or 0) + elapsed
     if saleClock < saleInterval then return end
     saleClock = 0
-    if pending then
-        local info = BagInfo(pending.bag, pending.slot)
-        if not info or info.itemID ~= pending.id or (info.stackCount or 1) < pending.count then
+    -- Confirm what was already sent to the vendor.
+    sale.inflight = sale.inflight or {}
+    for key, row in pairs(sale.inflight) do
+        local info = BagInfo(row.bag, row.slot)
+        if not info or info.itemID ~= row.id or (info.stackCount or 1) < row.count then
             sale.count = sale.count + 1
-            local quantity=pending.count
-            if info and info.itemID==pending.id then quantity=math.max(0,pending.count-(info.stackCount or 1)) end
-            sale.total = sale.total + pending.price * quantity
-            local row=sale.items[pending.id] or {id=pending.id,link=pending.link,count=0,total=0}
-            row.count=row.count+quantity;row.total=row.total+pending.price*quantity;sale.items[pending.id]=row
-            pending = nil
-        elseif sale.elapsed - pending.started > 2 then
-            sale.attempted[pending.bag .. ":" .. pending.slot] = true
-            pending = nil
-        else return end
-    end
-    local list, missing = E.ScanJunk(sale.grayOnly)
-    for _, row in ipairs(list) do
-        local key = row.bag .. ":" .. row.slot
-        if not row.locked and not row.noValue and row.price and row.price > 0 and not sale.attempted[key] then
-            local use = Container().UseContainerItem or UseContainerItem
-            if not use then StopSale("Vendor item API is unavailable."); return end
-            row.started = sale.elapsed
-            pending = row
-            local ok = pcall(use, row.bag, row.slot)
-            if not ok then sale.attempted[key] = true; pending = nil end
-            return
+            local quantity = row.count
+            if info and info.itemID == row.id then quantity = math.max(0, row.count - (info.stackCount or 1)) end
+            sale.total = sale.total + row.price * quantity
+            local entry = sale.items[row.id] or {id=row.id,link=row.link,count=0,total=0}
+            entry.count = entry.count + quantity; entry.total = entry.total + row.price * quantity; sale.items[row.id] = entry
+            sale.inflight[key] = nil
+        elseif sale.elapsed - row.started > 2 then
+            sale.attempted[key] = true
+            sale.inflight[key] = nil
         end
     end
+    local list, missing = E.ScanJunk(sale.grayOnly)
+    local use = Container().UseContainerItem or UseContainerItem
+    if not use then StopSale("Vendor item API is unavailable."); return end
+    -- Several items per tick: no waiting for each sale to clear before sending the next.
+    local sent = 0
+    for _, row in ipairs(list) do
+        local key = row.bag .. ":" .. row.slot
+        if not row.locked and not row.noValue and row.price and row.price > 0 and not sale.attempted[key] and not sale.inflight[key] then
+            row.started = sale.elapsed
+            sale.inflight[key] = row
+            if pcall(use, row.bag, row.slot) then sent = sent + 1 else sale.attempted[key] = true; sale.inflight[key] = nil end
+            if sent >= SALE_BATCH then break end
+        end
+    end
+    if sent > 0 or next(sale.inflight) then return end
     -- Give uncached/locked items time to finish loading; never fabricate a price.
     local locked = false
     for _, row in ipairs(list) do if row.locked then locked = true end end
@@ -259,7 +264,6 @@ function E.AddCursorJunk()
     E.RefreshJunk()
 end
 local function DeleteItem(row)
-    if InCombatLockdown() then Print("Delete items after combat."); return end
     if GetCursorInfo() then Print("Clear your cursor first."); return end
     local info = BagInfo(row.bag, row.slot)
     if not info or info.itemID ~= row.id or info.hyperlink ~= row.link or info.isLocked or (info.stackCount or 1) ~= row.count then
@@ -335,8 +339,8 @@ function E.RefreshJunk()
     for i=#list+1,#junkRows do junkRows[i]:Hide() end
     junkContent:SetHeight(math.max(1,#list*25))
     junkSell:SetEnabled(MerchantOpen() and not sale and not InCombatLockdown())
-    junkDelete:SetEnabled(#list>0 and not missing and not InCombatLockdown())
-    if junkLoot then junkLoot:SetEnabled(not InCombatLockdown()) end
+    junkDelete:SetEnabled(#list>0 and not missing)
+    if junkLoot then junkLoot:SetEnabled(true) end
     local worth=0
     for _,row in ipairs(list) do if row.price then worth=worth+row.price*row.count end end
     if junkTotal then
@@ -422,7 +426,7 @@ fullEvents:SetScript("OnEvent", function(_, event, first, second)
         end
     elseif E.retryLoot then
         E.retryLoot = false
-        if LootOpen() and not InCombatLockdown() then for i = GetNumLootItems(), 1, -1 do pcall(LootSlot, i) end end
+        if LootOpen() then for i = GetNumLootItems(), 1, -1 do pcall(LootSlot, i) end end
     end
 end)
 local profileWindow, profileName, profileContent, profileRows, profileStatus

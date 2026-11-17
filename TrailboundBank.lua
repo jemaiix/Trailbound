@@ -1,5 +1,5 @@
 -- Read-only bank snapshots. The real BankFrame and its actions are untouched.
-ForeverAssistBank={Version='1.8.79'}
+ForeverAssistBank={Version='1.8.84'}
 local B=ForeverAssistBank
 local account,character,bankOpen=false,nil,false
 local viewer,selectedKey,selectedTab
@@ -47,7 +47,7 @@ function B.Record()
  local name,realm=UnitName('player'),GetRealmName()
  if not name or name=='Unknown' then return false end
  if #list==0 and old and #(old.order or {})>0 then return false end
- local record={name=name,realm=realm,layout=layout,order={},containers={},updatedAt=time()}
+ local record={name=name,realm=realm,mailName=ForeverAssistFullMailName and ForeverAssistFullMailName('player') or (old and old.mailName),layout=layout,order={},containers={},updatedAt=time()}
  local valid=0
  for _,tab in ipairs(list) do
   local ok,size=pcall(readSlots,tab.id)
@@ -86,7 +86,11 @@ function B.Record()
  for oldKey,r in pairs(account.bankCharacters) do if oldKey~=id and r.name==name and r.realm==realm then account.bankCharacters[oldKey]=nil end end
  B.Refresh();return true
 end
-local function label(r) return r.name..' - '..r.realm end
+local function label(r)
+ local full=r.mailName
+ if not full then for _,c in pairs(account.characters or {}) do if c.name==r.name and c.realm==r.realm and c.mailName then full=c.mailName;break end end end
+ return ForeverAssistCharacterLabel(r,full)
+end
 function B.CharacterKeys()
  local result,seen={},{}
  for id,r in pairs(account.characters or {}) do result[#result+1]=id;seen[id]=true end
@@ -107,7 +111,7 @@ function B.Refresh()
  if not selectedKey or not account.bankCharacters[selectedKey] and not (account.characters or {})[selectedKey] then selectedKey=(account.bankCharacters[key()] or (account.characters or {})[key()]) and key() or keys[1] end
  if viewer.forget then viewer.forget:SetEnabled(ForeverAssistExtras.CanForgetCharacter(selectedKey)) end
  local r=account.bankCharacters[selectedKey];local who=r or (account.characters or {})[selectedKey]
- local characterLabel=who and label(who) or UnitName('player')..' - '..GetRealmName()
+ local characterLabel=who and label(who) or ((ForeverAssistFullMailName and ForeverAssistFullMailName('player') or UnitName('player'))..' - '..ForeverAssistRealmLabel(GetRealmName()))
  viewer.character:SetText(characterLabel)
  if viewer.selector and viewer.selector.SetDefaultText then viewer.selector:SetDefaultText(characterLabel) end
  for _,b in ipairs(tabs) do b:Hide() end;for _,b in ipairs(slots) do b:Hide() end

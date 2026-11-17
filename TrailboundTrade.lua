@@ -2,7 +2,7 @@
 --  * Shift-click an item at a vendor: choose ANY quantity (not just one stack); it is bought as
 --    several stacks.
 --  * Ctrl+right-click an item in your bags while the mail Send tab is open: attach every stack of it.
-ForeverAssistTrade={Version='1.8.79'}
+ForeverAssistTrade={Version='1.8.84'}
 local T=ForeverAssistTrade
 local function combat() return InCombatLockdown and InCombatLockdown() end
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
@@ -10,9 +10,21 @@ local function say(text) print('|cffd2b077Trailbound:|r '..text) end
 local function editBoxOf(dialog) return dialog.editBox or dialog.EditBox or (dialog.GetEditBox and dialog:GetEditBox()) end
 
 -- ---------------------------------------------------------------- vendor: any quantity
+function T.MaxStack(index)
+ local fn=GetMerchantItemMaxStack or (C_MerchantFrame and C_MerchantFrame.GetMerchantItemMaxStack)
+ local ok,value=pcall(function() return fn and fn(index) end)
+ return ok and type(value)=='number' and value>0 and value or 1
+end
+-- GetMerchantItemInfo was replaced by C_MerchantFrame.GetItemInfo, which returns a table.
 local function merchantInfo(index)
- local name,_,price,stackCount,numAvailable=GetMerchantItemInfo(index)
- return name,price,(stackCount and stackCount>0 and stackCount or 1),numAvailable
+ local name,price,stackCount,numAvailable
+ if C_MerchantFrame and C_MerchantFrame.GetItemInfo then
+  local info=C_MerchantFrame.GetItemInfo(index)
+  if type(info)=='table' then name,price,stackCount,numAvailable=info.name,info.price,info.stackCount,info.numAvailable end
+ elseif GetMerchantItemInfo then
+  local n,_,p,s,a=GetMerchantItemInfo(index);name,price,stackCount,numAvailable=n,p,s,a
+ end
+ return name,price,(type(stackCount)=='number' and stackCount>0 and stackCount or 1),numAvailable
 end
 function T.Buy(data,total)
  if combat() or type(data)~='table' or not data.index then return end
@@ -23,7 +35,7 @@ function T.Buy(data,total)
  -- The merchant page may have changed while the box was open.
  if GetMerchantItemLink(index)~=data.link then say('That vendor slot changed; shift-click the item again.');return end
  local name,price,stackCount,numAvailable=merchantInfo(index)
- local maxStack=GetMerchantItemMaxStack(index) or 1
+ local maxStack=T.MaxStack(index)
  local limit=total
  if type(numAvailable)=='number' and numAvailable>=0 then limit=math.min(limit,numAvailable*stackCount) end
  if price and price>0 then limit=math.min(limit,math.floor(GetMoney()/(price/stackCount))) end
@@ -65,7 +77,7 @@ local function hookSplit()
   if not index then return end
   local link=GetMerchantItemLink(index);if not link then return end
   self:Hide()
-  local maxItems=GetMerchantItemMaxStack(index) or 1
+  local maxItems=T.MaxStack(index)
   StaticPopup_Show('FOREVERASSIST_BULK_BUY',link,nil,{index=index,link=link,default=maxItems})
  end)
 end

@@ -1,5 +1,5 @@
 -- Additional reminder rules. All aura fields come through the restricted-aura guard.
-ForeverAssistReminders={Version='1.8.79'}
+ForeverAssistReminders={Version='1.8.84'}
 local R=ForeverAssistReminders
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local abilityCache,selectedCache={},{}
@@ -142,26 +142,45 @@ function R.PoisonReminder()
   clickText=slot==16 and 'Click to apply to your main hand' or 'Click to apply to your off hand'}
 end
  -- Hunter ammo: remind when fewer than 200 of the ammo the ranged weapon uses are left (equipped + bags).
+-- Guns use bullets, bows and crossbows use arrows. The kind is read from the weapon's class and from its
+-- type name, and falls back to the equipped ammo, so it works whichever way the client labels items.
 local AMMO_LOW=200
-local function ammoKind()
- local id=GetInventoryItemID and GetInventoryItemID('player',18)
- if not id or not safe(id) then return end
+local function lowerName(v) return type(v)=='string' and safe(v) and v:lower() or '' end
+local function itemFacts(id)
  local instant=C_Item and C_Item.GetItemInfoInstant
- if not instant then return end
- local _,_,_,_,_,classID,subclassID=instant(id)
- if classID~=2 then return end
- if subclassID==2 or subclassID==18 then return 2,'arrows' end   -- bows and crossbows
- if subclassID==3 then return 3,'bullets' end                    -- guns
+ if not instant or not id or not safe(id) then return end
+ local _,typeName,subName,_,icon,classID,subclassID=instant(id)
+ return {sub=lowerName(subName),icon=icon,class=classID,subclass=subclassID}
 end
-function R.AmmoReminder()
- local _,class=UnitClass('player');if class~='HUNTER' then return end
- local subclass,noun=ammoKind();if not subclass then return end
- local instant=C_Item and C_Item.GetItemInfoInstant;if not instant then return end
+local function kindOfWeapon(f)
+ if not f then return end
+ if f.class==2 then
+  if f.subclass==3 or f.sub:find('gun',1,true) then return 'bullets' end
+  if f.subclass==2 or f.subclass==18 or f.sub:find('bow',1,true) then return 'arrows' end
+ end
+ if f.sub:find('gun',1,true) then return 'bullets' end
+ if f.sub:find('bow',1,true) then return 'arrows' end
+end
+local function kindOfAmmo(f)
+ if not f then return end
+ if f.class==6 then
+  if f.subclass==3 or f.sub:find('bullet',1,true) then return 'bullets' end
+  if f.subclass==2 or f.sub:find('arrow',1,true) then return 'arrows' end
+ end
+ if f.sub:find('bullet',1,true) then return 'bullets' end
+ if f.sub:find('arrow',1,true) then return 'arrows' end
+end
+local function ammoKind()
+ local weaponID=GetInventoryItemID and GetInventoryItemID('player',18)
+ if not weaponID or not safe(weaponID) then return end
+ return kindOfWeapon(itemFacts(weaponID)) or kindOfAmmo(itemFacts(GetInventoryItemID('player',0)))
+end
+local function countAmmo(kind)
  local total,iconID=0,nil
  local function add(id,count)
   if not id or not safe(id) or not safe(count) or type(count)~='number' then return end
-  local _,_,_,_,icon,classID,sub=instant(id)
-  if classID==6 and sub==subclass then total=total+count;iconID=iconID or icon end
+  local f=itemFacts(id)
+  if kindOfAmmo(f)==kind then total=total+count;iconID=iconID or f.icon end
  end
  add(GetInventoryItemID and GetInventoryItemID('player',0),GetInventoryItemCount and GetInventoryItemCount('player',0) or 0)
  local read=C_Container and C_Container.GetContainerItemInfo
@@ -173,8 +192,25 @@ function R.AmmoReminder()
    end
   end
  end
+ return total,iconID
+end
+function R.AmmoReminder()
+ local _,class=UnitClass('player');if class~='HUNTER' then return end
+ local kind=ammoKind();if not kind then return end
+ local total,iconID=countAmmo(kind)
  if total>=AMMO_LOW then return end
- return {label=(total==0 and ('Out of '..noun) or ('Low on '..noun..' ('..total..' left)')),shortLabel=total==0 and 'No ammo' or ('Ammo '..total),icon=iconID or 134400}
+ return {label=(total==0 and ('Out of '..kind) or ('Low on '..kind..' ('..total..' left)')),shortLabel=total==0 and 'No ammo' or ('Ammo '..total),icon=iconID or 134400}
+end
+-- /tb ammo: shows what the reminder sees, for troubleshooting.
+function R.AmmoDebug()
+ local weaponID=GetInventoryItemID and GetInventoryItemID('player',18)
+ local ammoID=GetInventoryItemID and GetInventoryItemID('player',0)
+ local w,a=itemFacts(weaponID),itemFacts(ammoID)
+ local function show(f) return f and ('class '..tostring(f.class)..', subclass '..tostring(f.subclass)..', type "'..f.sub..'"') or 'none' end
+ print('|cffd2b077Trailbound ammo:|r ranged weapon: '..show(w))
+ print('|cffd2b077Trailbound ammo:|r equipped ammo: '..show(a))
+ local kind=ammoKind()
+ if kind then local total=countAmmo(kind);print('|cffd2b077Trailbound ammo:|r tracking '..kind..': '..total..' (reminder below '..AMMO_LOW..')') else print('|cffd2b077Trailbound ammo:|r no ranged weapon or ammo type recognised') end
 end
 local cities={[1453]=true,[1454]=true,[1455]=true,[1456]=true,[1457]=true,[1458]=true,[1947]=true,[1954]=true}
 local cityNames={['Stormwind City']=true,Stormwind=true,Ironforge=true,Darnassus=true,Orgrimmar=true,['Thunder Bluff']=true,Undercity=true,['The Exodar']=true,Exodar=true,['Silvermoon City']=true}
@@ -245,7 +281,8 @@ local events=CreateFrame('Frame')
 for _,event in ipairs({'SPELLS_CHANGED','PLAYER_TALENT_UPDATE','CHARACTER_POINTS_CHANGED','BAG_UPDATE_DELAYED','BAG_UPDATE_COOLDOWN','PLAYER_ENTERING_WORLD'}) do pcall(events.RegisterEvent,events,event) end
 events:SetScript('OnEvent',R.Invalidate)
 function R.SleepingBagReminder(auras,enabled)
- if not enabled then R.ResetSleepingBag();return end
+ -- Not needed at the level cap (60).
+ if not enabled or (UnitLevel('player') or 0)>=60 then R.ResetSleepingBag();return end
  local aura
  for _,a in ipairs(auras or {}) do if a.spellId==sleepingAura then aura=a;break end end
  local expires=aura and aura.expirationTime or 0
