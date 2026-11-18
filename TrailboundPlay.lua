@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.84'
+ForeverAssistPlay.Version='1.8.86'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -1396,13 +1396,38 @@ local function scheduleCompact()
 end
 local minimapEvents=CreateFrame('Frame')
 for _,event in ipairs({'PLAYER_ENTERING_WORLD','UI_SCALE_CHANGED','DISPLAY_SIZE_CHANGED','PLAYER_REGEN_ENABLED','ZONE_CHANGED_NEW_AREA'}) do pcall(minimapEvents.RegisterEvent,minimapEvents,event) end
-minimapEvents:SetScript('OnEvent',function() scheduleCompact();if C_Timer then C_Timer.After(1,scheduleCompact);C_Timer.After(4,scheduleCompact) end end)
+minimapEvents:SetScript('OnEvent',function() scheduleCompact();if C_Timer then C_Timer.After(1,scheduleCompact);C_Timer.After(4,scheduleCompact);C_Timer.After(1.5,function() pcall(P.ReapplySquareRings) end) end end)
 if MinimapCluster then
  for _,name in ipairs({'SetHeaderUnderneath','UpdateLayout','Layout'}) do if type(MinimapCluster[name])=='function' then pcall(hooksecurefunc,MinimapCluster,name,scheduleCompact) end end
  if MinimapCluster.IndicatorFrame and type(MinimapCluster.IndicatorFrame.Layout)=='function' then pcall(hooksecurefunc,MinimapCluster.IndicatorFrame,'Layout',scheduleCompact) end
 end
 if UIParent_UpdateTopFramePositions then pcall(hooksecurefunc,'UIParent_UpdateTopFramePositions',scheduleCompact) end
 
+-- The quest, archaeology and task "blob rings" are circles drawn around the minimap; with a square map they
+-- show up as a stray coloured circle, so they are switched off while the map is square and restored after.
+local blobRingNames={'QuestBlobRingAlpha','ArchBlobRingAlpha','TaskBlobRingAlpha','CorpseBlobRingAlpha'}
+local blobRingOriginal
+local function setBlobRings(square)
+ if not Minimap then return end
+ if square and not blobRingOriginal then
+  blobRingOriginal={}
+  for _,name in ipairs(blobRingNames) do
+   local get=Minimap['Get'..name]
+   if get then local ok,value=pcall(get,Minimap);blobRingOriginal[name]=ok and type(value)=='number' and value or nil end
+  end
+ end
+ for _,name in ipairs(blobRingNames) do
+  local set=Minimap['Set'..name]
+  if set then
+   if square then pcall(set,Minimap,0)
+   elseif blobRingOriginal and blobRingOriginal[name] then pcall(set,Minimap,blobRingOriginal[name]) end
+  end
+ end
+ if not square then blobRingOriginal=nil end
+end
+function P.ReapplySquareRings()
+ if squareApplied then setBlobRings(true) end
+end
 function P.ApplySquareMinimap()
  if not Minimap or not Minimap.SetMaskTexture or combat() then return end
  -- A round minimap that was never made square is left exactly as the client draws it.
@@ -1423,6 +1448,7 @@ function P.ApplySquareMinimap()
  Minimap:SetMaskTexture(enabled and 'Interface/Buttons/WHITE8X8' or roundMask)
  if not enabled then squareApplied=false end
  for f,wasShown in pairs(roundDecorations) do if enabled then f:Hide() else f:SetShown(wasShown) end end
+ pcall(setBlobRings,enabled)
  squareBorder:SetShown(enabled and Minimap:IsShown())
  pcall(P.ApplyCompactMinimap)
 end

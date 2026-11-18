@@ -140,3 +140,9 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 
 ## 1.8.84
 - Fix: shift-click vendor quantity prompt errored on clients without GetMerchantItemInfo (now uses C_MerchantFrame.GetItemInfo).
+
+## 1.8.85
+- Banker auto-open restored: bankers are matched by option text; the old icon match was actually the flight master icon (it also caused guard/flight master auto-picks).
+
+## 1.8.86
+- Square minimap: the stray round blob-ring circle is switched off while the map is square (restored when it is not).

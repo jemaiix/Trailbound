@@ -1,5 +1,5 @@
 -- Character milestones use the server's /played counters, never wall-clock dates.
-ForeverAssistLevels={Version='1.8.84'}
+ForeverAssistLevels={Version='1.8.86'}
 local L=ForeverAssistLevels
 local character,settings,window,total,levelSeconds,sampledAt
 local function publicNumber(v)return (not issecretvalue or not issecretvalue(v))and type(v)=='number'and v>=0 end

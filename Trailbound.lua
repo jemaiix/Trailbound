@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.84
+-- Trailbound 1.8.86
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -54,18 +54,21 @@ local function Print(msg) print("|cffd2b077Trailbound:|r " .. msg) end
 --------------------------------------------------------------------
 -- Gossip
 --------------------------------------------------------------------
-local ICON_VENDOR, ICON_TRAINER, ICON_BANKER = 132060, 132058, 132057
+local ICON_VENDOR, ICON_TRAINER = 132060, 132058
 
 local function OptionKind(o, allowNameMatch)
     if o.type then return o.type end
     local icon = o.overrideIconID or o.icon
     if icon == ICON_VENDOR then return "vendor" end
     if icon == ICON_TRAINER then return "trainer" end
-    if icon == ICON_BANKER then return "banker" end
-    -- A banker's single option is named "The bank" / mentions a deposit box. Only trusted on NPCs with
-    -- very few options: guards list "Bank" among many destinations and must not be auto-picked.
+    -- Bankers are recognised by their option text ("The bank", "...check my deposit box"). The icon is not
+    -- used: 132057 is the flight master icon, which made guards and flight masters get auto-selected.
+    -- The text is only trusted on NPCs with few options, since guards list "Bank" among many destinations.
     local name = o.name
-    if allowNameMatch and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name:lower():find("bank", 1, true) then return "banker" end
+    if allowNameMatch and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
+        local lower = name:lower()
+        if lower:find("bank", 1, true) or lower:find("deposit", 1, true) or lower:find("vault", 1, true) then return "banker" end
+    end
 end
 
 local function HandleGossip()
@@ -91,9 +94,9 @@ local function HandleGossip()
     local options = C_GossipInfo.GetOptions() or {}
     -- Guards and other information NPCs list many destinations (bank, inn, trainers, vendors...) that
     -- merely show directions. Real vendors, bankers and class trainers have only a few options.
-    if #options >= 5 then return end
+    if #options >= 6 then return end
     for _, o in ipairs(options) do
-        local kind = OptionKind(o, #options <= 2)
+        local kind = OptionKind(o, #options <= 4)
         if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) or (kind == "banker" and DB.gossipBank) then
             C_GossipInfo.SelectOption(o.gossipOptionID)
             return
@@ -1182,7 +1185,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.84 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.86 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
