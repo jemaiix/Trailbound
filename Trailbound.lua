@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.86
+-- Trailbound 1.8.88
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -12,7 +12,7 @@
 --------------------------------------------------------------------
 local DB, characterDB
 local defaults = {
-    gossipVendor = true, gossipTrainer = false, gossipBank = true, compactMinimap = true, mailPrefill = true, customBag = false,
+    gossipVendor = true, gossipTrainer = false, gossipBank = true, gossipTaxi = true, compactMinimap = true, mailPrefill = true, customBag = false,
     acceptQuests = true, turnInQuests = true,
     sellJunk = true, junkReport = true,
     fsr = true, fsrScale = 1,
@@ -54,15 +54,16 @@ local function Print(msg) print("|cffd2b077Trailbound:|r " .. msg) end
 --------------------------------------------------------------------
 -- Gossip
 --------------------------------------------------------------------
-local ICON_VENDOR, ICON_TRAINER = 132060, 132058
+local ICON_VENDOR, ICON_TRAINER, ICON_TAXI = 132060, 132058, 132057
 
 local function OptionKind(o, allowNameMatch)
     if o.type then return o.type end
     local icon = o.overrideIconID or o.icon
     if icon == ICON_VENDOR then return "vendor" end
     if icon == ICON_TRAINER then return "trainer" end
+    if icon == ICON_TAXI then return "taxi" end -- flight masters (gossip icon 132057)
     -- Bankers are recognised by their option text ("The bank", "...check my deposit box"). The icon is not
-    -- used: 132057 is the flight master icon, which made guards and flight masters get auto-selected.
+    -- used for banks: 132057 is the flight master icon (handled as taxi above).
     -- The text is only trusted on NPCs with few options, since guards list "Bank" among many destinations.
     local name = o.name
     if allowNameMatch and type(name) == "string" and not (issecretvalue and issecretvalue(name)) then
@@ -95,9 +96,16 @@ local function HandleGossip()
     -- Guards and other information NPCs list many destinations (bank, inn, trainers, vendors...) that
     -- merely show directions. Real vendors, bankers and class trainers have only a few options.
     if #options >= 6 then return end
+    -- Innkeepers offer "Make this inn your home" next to their goods: never auto-open the vendor window there.
+    local innkeeper = false
+    for _, o in ipairs(options) do
+        local text = type(o.name) == "string" and not (issecretvalue and issecretvalue(o.name)) and o.name:lower() or ""
+        if text:find("this inn", 1, true) or text:find("your home", 1, true) or text:find("hearthstone", 1, true) then innkeeper = true end
+    end
     for _, o in ipairs(options) do
         local kind = OptionKind(o, #options <= 4)
-        if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) or (kind == "banker" and DB.gossipBank) then
+        if kind == "vendor" and innkeeper then kind = nil end
+        if (kind == "vendor" and DB.gossipVendor) or (kind == "trainer" and DB.gossipTrainer) or (kind == "banker" and DB.gossipBank) or (kind == "taxi" and DB.gossipTaxi) then
             C_GossipInfo.SelectOption(o.gossipOptionID)
             return
         end
@@ -820,15 +828,16 @@ local function CreateOptions()
     local function applyPlay() ForeverAssistPlay.ApplySettings() end
     local general=section('general','ForeverAssistGeneralOptions','Quests & class training','Quest interactions, NPC shortcuts, and your class spell catalogue.')
     heading(general,'Interactions',-70)
-    Check(general,"gossipVendor","Auto-open vendor window",0,-99)
+    Check(general,"gossipVendor","Auto-open vendor window (not at innkeepers)",0,-99)
     Check(general,"gossipTrainer","Auto-open trainer window",0,-132)
     Check(general,"gossipBank","Auto-open bank window",0,-165)
-    Check(general,"acceptQuests","Auto-accept quests",0,-198)
-    Check(general,"turnInQuests","Auto turn-in without reward choice",0,-231)
-    Check(general,"sparkle","Highlight quest objects",0,-264,function() ApplySparkle(true) end)
-    label(general,'Hold Shift while talking to an NPC to bypass gossip, quest acceptance and automatic turn-ins.',2,-303,470)
-    heading(general,'Training catalogues',-357)
-    Check(general,"book","Show class spells in spellbook",0,-386,SetBookShown)
+    Check(general,"gossipTaxi","Auto-open flight master map",0,-198)
+    Check(general,"acceptQuests","Auto-accept quests",0,-231)
+    Check(general,"turnInQuests","Auto turn-in without reward choice",0,-264)
+    Check(general,"sparkle","Highlight quest objects",0,-297,function() ApplySparkle(true) end)
+    label(general,'When auto-open is on for vendors, trainers, banks or flight masters, hold Shift while talking to an NPC to override it and get the normal gossip window. Shift also bypasses automatic quest accepting and turn-ins.',2,-336,470)
+    heading(general,'Training catalogues',-390)
+    Check(general,"book","Show class spells in spellbook",0,-419,SetBookShown)
     local junk=section('inventory','ForeverAssistJunkOptions','Bags, banks & vendors','Account inventory, bag movement, looting, and automatic selling.')
     heading(junk,'Vendor junk',-70)
     Check(junk,"sellJunk","Auto-sell gray items",0,-99,function() if not DB.sellJunk then ForeverAssistExtras.CancelAutomaticSale() end end)
@@ -1185,7 +1194,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.86 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.88 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
@@ -1197,6 +1206,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
     elseif msg == "" or msg == "options" or msg == "config" then ToggleOptions()
     elseif msg == "vendor" then Toggle("gossipVendor", "Auto vendor")
     elseif msg == "trainer" then Toggle("gossipTrainer", "Auto trainer")
+    elseif msg == "taxi" then Toggle("gossipTaxi", "Auto flight master")
     elseif msg == "quests" then
         Toggle("acceptQuests", "Auto-accept quests")
         DB.turnInQuests = DB.acceptQuests

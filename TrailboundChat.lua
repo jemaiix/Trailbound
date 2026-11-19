@@ -1,4 +1,4 @@
-ForeverAssistChat={Version='1.8.86'}
+ForeverAssistChat={Version='1.8.88'}
 local C=ForeverAssistChat
 local settings,options,copyWindow,copyBox
 local identities,wrapped={},{ }

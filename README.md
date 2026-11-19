@@ -146,3 +146,11 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 
 ## 1.8.86
 - Square minimap: the stray round blob-ring circle is switched off while the map is square (restored when it is not).
+
+## 1.8.87
+- Flight masters auto-open the flight map again (own option, `/tb taxi`).
+- The reagent drawer is sized to the equipped reagent bag.
+
+## 1.8.88
+- Innkeepers no longer auto-open their vendor window (other vendors still do).
+- Settings now explain that holding Shift while talking to an NPC overrides the auto-open options.

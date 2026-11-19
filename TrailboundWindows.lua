@@ -1,5 +1,5 @@
 -- Move standard panels without tainting Blizzard's native show/hide decisions.
-ForeverAssistWindows={Version='1.8.86'}
+ForeverAssistWindows={Version='1.8.88'}
 local W=ForeverAssistWindows
 local character
 local frames={}

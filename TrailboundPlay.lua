@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.86'
+ForeverAssistPlay.Version='1.8.88'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -961,7 +961,12 @@ local function reagentRefresh()
  local x0=grid.minLeft-fl
  local height=rows*grid.rowStep-(grid.rowStep-grid.size)+PADV*2
  -- A drawer flush under the bag, as wide as the bag, with slots in the bag's own columns.
- window:ClearAllPoints();window:SetPoint('TOPLEFT',f,'BOTTOMLEFT',0,1);window:SetPoint('TOPRIGHT',f,'BOTTOMRIGHT',0,1);window:SetHeight(height);window:Show()
+ -- The drawer fits the equipped reagent bag: as wide as its slots when the bag is smaller than a full row,
+ -- otherwise as wide as the combined bag.
+ window:ClearAllPoints();window:SetPoint('TOPLEFT',f,'BOTTOMLEFT',0,1)
+ if cols>=grid.cols then window:SetPoint('TOPRIGHT',f,'BOTTOMRIGHT',0,1)
+ else window:SetWidth(math.min(f:GetWidth(),x0*2+cols*grid.colStep-(grid.colStep-grid.size))) end
+ window:SetHeight(height);window:Show()
  local lift=height-1
  if math.abs((f.tbLift or 0)-lift)>.5 then setLift(f,lift) end
  local art=nativeEmptyArt(f)
