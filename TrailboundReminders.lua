@@ -1,5 +1,5 @@
 -- Additional reminder rules. All aura fields come through the restricted-aura guard.
-ForeverAssistReminders={Version='1.8.95'}
+ForeverAssistReminders={Version='1.8.96'}
 local R=ForeverAssistReminders
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local abilityCache,selectedCache={},{}

@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.95'
+ForeverAssistPlay.Version='1.8.96'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -1692,7 +1692,7 @@ function P.Options(category)
   page=window('ForeverAssistPlayOptions_'..category,titles[category] or 'Gameplay',440,category=='bags' and 380 or (category=='nutrition' and 340 or 300));playOptions[category]=page
   local function check(key,label,y)
    local c=CreateFrame('CheckButton',nil,page,'UICheckButtonTemplate');c:SetPoint('TOPLEFT',20,y);local t=text(c);t:SetPoint('LEFT',c,'RIGHT',3,0);t:SetText(label)
-   c:SetScript('OnClick',function(self) settings()[key]=self:GetChecked() and true or false;P.ApplySettings() end);c:HookScript('OnShow',function(self) self:SetChecked(settings()[key]) end)
+   c:SetScript('OnClick',function(self) settings()[key]=self:GetChecked() and true or false;P.ApplySettings();if ForeverAssistAskReload then ForeverAssistAskReload(key) end end);c:HookScript('OnShow',function(self) self:SetChecked(settings()[key]) end)
   end
   if category=='swing' then
    page:ClearAllPoints();page:SetPoint('CENTER',UIParent,'CENTER',-360,100)

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.95
+-- Trailbound 1.8.96
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -718,6 +718,25 @@ local function registerSearch(parent, widget, text, kind)
         searchIndex[#searchIndex + 1] = { parent = parent, widget = widget, text = text, kind = kind }
     end
 end
+-- Settings the game cannot fully switch over while running: changing one offers a UI reload.
+local RELOAD_KEYS = {
+    squareMinimap = "Square minimap", compactMinimap = "Minimap spacing and mail icon", minimapMenu = "Addon icons on minimap right-click",
+    hideStanceBar = "Stance bar visibility", moveBags = "Draggable bags", customBag = "Custom bag window",
+}
+local pendingReload, pendingReloadList = {}, {}
+StaticPopupDialogs["TRAILBOUND_RELOAD"] = {
+    text = "|cffd2b077Trailbound|r\n\nThese changes work best after a UI reload:\n%s\n\nReload now?",
+    button1 = "Reload UI", button2 = "Later",
+    OnAccept = function() ReloadUI() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+function ForeverAssistAskReload(key)
+    local name = RELOAD_KEYS[key]
+    if not name then return end
+    if not pendingReload[key] then pendingReload[key] = true; pendingReloadList[#pendingReloadList + 1] = "- " .. name end
+    StaticPopup_Hide("TRAILBOUND_RELOAD")
+    StaticPopup_Show("TRAILBOUND_RELOAD", table.concat(pendingReloadList, "\n"))
+end
 local function Check(parent, key, label, x, y, onChange)
     local name = "FACheck" .. key
     local cb = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
@@ -727,6 +746,7 @@ local function Check(parent, key, label, x, y, onChange)
     cb:SetScript("OnClick", function(self)
         DB[key] = self:GetChecked() and true or false
         if onChange then onChange() end
+        ForeverAssistAskReload(key)
     end)
     refreshers[#refreshers + 1] = function() cb:SetChecked(DB[key]) end
     registerSearch(parent, cb, label, "setting")
@@ -1367,7 +1387,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.95 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.96 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()

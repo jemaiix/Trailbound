@@ -183,3 +183,6 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 - Options window: navigation no longer overlaps (heading and entries re-spaced, taller window), window is drawn above other panels.
 - Character names: first + second name detected from more sources; `/tb names` prints what the client reports. Alts need one login to save their full name.
 - Reagent drawer is built when bags open in combat; only the bag lift waits for combat to end.
+
+## 1.8.96
+- Settings that need a UI reload (square minimap, minimap spacing/mail icon, minimap addon icons, stance bar, draggable bags) now pop up a "Reload UI" prompt when changed.
