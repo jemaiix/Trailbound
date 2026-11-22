@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.96'
+ForeverAssistPlay.Version='1.8.98'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -49,7 +49,7 @@ end
 -- Cache static spell/rank lookups until the spellbook changes.
 local paladinCache
 -- Paladin blessing alternatives distinguish caster and compare known ranks.
-function P.PaladinReminder(auras)
+function P.PaladinReminder(auras,conflicts)
  if not paladinCache then
  local families={might={"Blessing of Might","Greater Blessing of Might"},wisdom={"Blessing of Wisdom","Greater Blessing of Wisdom"},kings={"Blessing of Kings","Greater Blessing of Kings"},sanctuary={"Blessing of Sanctuary","Greater Blessing of Sanctuary"},light={"Blessing of Light","Greater Blessing of Light"},salvation={"Blessing of Salvation","Greater Blessing of Salvation"}}
  local byID,byName,best={},{},{}
@@ -73,6 +73,12 @@ function P.PaladinReminder(auras)
    local source=a.sourceUnit;local mine=source=='player' or source and UnitIsUnit and UnitIsUnit(source,'player')
    local target=mine and own or foreign
    target[e.family]=math.max(target[e.family] or 0,e.level)
+  end
+ end
+ -- Camp buffs (mana well, fish bowl...) that say they do not stack with a blessing cover that blessing.
+ if type(conflicts)=='string' and conflicts~='' then
+  for family,label in pairs({might='blessing of might',wisdom='blessing of wisdom',kings='blessing of kings',sanctuary='blessing of sanctuary'}) do
+   if conflicts:find(label,1,true) then foreign[family]=math.max(foreign[family] or 0,999) end
   end
  end
  for family,level in pairs(own) do

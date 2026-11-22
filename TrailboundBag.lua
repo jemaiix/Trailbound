@@ -2,7 +2,7 @@
 -- also holds the reagent bag, using Blizzard's portrait-frame chrome and secure container item
 -- buttons (so right-click use, drag, split and modified clicks behave like the normal bag).
 -- Opt-in (Bags settings). The Blizzard frame is only parked off-screen while it is active.
-ForeverAssistBag={Version='1.8.96'}
+ForeverAssistBag={Version='1.8.98'}
 local B=ForeverAssistBag
 local SIZE,GAP,COLS,PAD=37,5,10,14
 local REAGENT=(Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag) or 5

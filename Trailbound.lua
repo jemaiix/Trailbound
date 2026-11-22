@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.96
+-- Trailbound 1.8.98
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -541,6 +541,35 @@ local function PlayerBuffNames()
     return set,auras
 end
 
+-- Buffs that cannot stack (a camp buff, another player's buff) are named in the buff's own tooltip
+-- ("Does not stack with Mark of the Wild"). Read those once per buff and treat the named buff as already covered.
+local conflictCache = {}
+local function ConflictText(auras)
+    local parts = {}
+    for _, a in ipairs(auras or {}) do
+        local id = a.spellId or a.spellID
+        if type(id) == "number" then
+            local text = conflictCache[id]
+            if text == nil then
+                text = ""
+                local ok, data = pcall(function() return C_TooltipInfo and C_TooltipInfo.GetSpellByID and C_TooltipInfo.GetSpellByID(id) end)
+                if ok and type(data) == "table" and type(data.lines) == "table" then
+                    for _, line in ipairs(data.lines) do
+                        local t = type(line) == "table" and line.leftText
+                        if type(t) == "string" and (not issecretvalue or not issecretvalue(t)) then
+                            t = t:lower()
+                            if t:find("not stack", 1, true) or t:find("n't stack", 1, true) or t:find("overwrite", 1, true) then text = text .. " " .. t end
+                        end
+                    end
+                end
+                conflictCache[id] = text
+            end
+            if text ~= "" then parts[#parts + 1] = text end
+        end
+    end
+    return table.concat(parts, " ")
+end
+
 local rem
 local unlocked = false
 
@@ -625,13 +654,18 @@ local function UpdateReminder()
         and not (DB.buffsHideCombat and UnitAffectingCombat("player"))
         and not (DB.buffsHideMounted and ((IsMounted and IsMounted()) or UnitOnTaxi("player"))) then
         local _,class=UnitClass("player")
+        local conflicts = ConflictText(auras)
         if DB.buffs and class=="PALADIN" then
-            local blessing=ForeverAssistPlay.PaladinReminder(auras);if blessing then list[#list+1]=blessing end
+            local blessing=ForeverAssistPlay.PaladinReminder(auras,conflicts);if blessing then list[#list+1]=blessing end
         end
         for _, g in ipairs(DB.buffs and class~="PALADIN" and activeGroups or {}) do
             local ok = false
             for _, n in ipairs(g.names) do
                 if have[n] then ok = true break end
+            end
+            -- A buff that is named as "does not stack" by something already on you (camp buffs, Fire Shield) is covered.
+            if not ok and conflicts ~= "" then
+                for _, n in ipairs(g.names) do if conflicts:find(n:lower(), 1, true) then ok = true break end end
             end
             -- Thorns and a warlock's Fire Shield cannot both be active, so never nag for Thorns then.
             if not ok and class=="DRUID" then
@@ -990,7 +1024,7 @@ local function CreateOptions()
     heading(pvp,'Character window (C)',-262)
     Check(pvp,"charItemLevel","Show item levels on equipped items and your average item level",0,-291,function() ForeverAssistCharacter.Update() end)
     Check(pvp,"charEnchants","Show enchants on equipped items and flag missing ones",0,-324,function() ForeverAssistCharacter.Update() end)
-    label(pvp,'Item levels appear on each item, your equipped average item level sits under your level, and enchants are listed beside each item. Items that can be enchanted but are not show a red "No enchant" at maximum level.',2,-362,470)
+    label(pvp,'Item levels appear on each item, your equipped average item level sits under your level, and enchants are listed beside each item. Items that can be enchanted (including necks) but are not show a red "No enchant" at maximum level.',2,-362,470)
     local searchPage=CreateFrame("Frame","ForeverAssistSearchResults",opt);searchPage:SetSize(500,465);searchPage:SetPoint("TOPLEFT",216,-83);searchPage:Hide()
     sections['search']=searchPage;searchPage.journalTitle='Search results'
     label(searchPage,'Search results',0,0,490,"TrailboundTitle")
@@ -1387,7 +1421,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.96 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.98 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
@@ -1400,6 +1434,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
     elseif msg == "vendor" then Toggle("gossipVendor", "Auto vendor")
     elseif msg == "trainer" then Toggle("gossipTrainer", "Auto trainer")
     elseif msg == "taxi" then Toggle("gossipTaxi", "Auto flight master")
+    elseif msg == "ilvl" then ForeverAssistCharacter.Debug()
     elseif msg == "names" then ForeverAssistNameDebug()
     elseif msg == "release" then Toggle("bgRelease", "Auto-release in battlegrounds")
     elseif msg == "pvptab" then Toggle("pvpTabPlayers", "Enemy-player Tab in PvP", function() ForeverAssistPvP.Update() end)

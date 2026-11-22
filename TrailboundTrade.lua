@@ -2,7 +2,7 @@
 --  * Shift-click an item at a vendor: choose ANY quantity (not just one stack); it is bought as
 --    several stacks.
 --  * Ctrl+right-click an item in your bags while the mail Send tab is open: attach every stack of it.
-ForeverAssistTrade={Version='1.8.96'}
+ForeverAssistTrade={Version='1.8.98'}
 local T=ForeverAssistTrade
 local function combat() return InCombatLockdown and InCombatLockdown() end
 local function safe(v) return not issecretvalue or not issecretvalue(v) end

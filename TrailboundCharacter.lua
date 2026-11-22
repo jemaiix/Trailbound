@@ -1,7 +1,7 @@
 -- Character window (C): item level on every equipped item, your average equipped item level,
 -- and the enchant on each item (or a red "No enchant" for slots that can be enchanted).
 -- Everything is drawn on the existing character frame; there is no separate window.
-ForeverAssistCharacter={Version='1.8.96'}
+ForeverAssistCharacter={Version='1.8.98'}
 local C=ForeverAssistCharacter
 local function cfg() return ForeverAssistPlay and ForeverAssistPlay.Settings and ForeverAssistPlay.Settings() or {} end
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
@@ -10,7 +10,7 @@ local SLOTS={'Head','Neck','Shoulder','Back','Chest','Shirt','Tabard','Wrist','H
 local LEFT={Head=1,Neck=1,Shoulder=1,Back=1,Chest=1,Shirt=1,Tabard=1,Wrist=1}
 local BOTTOM={MainHand=1,SecondaryHand=1,Ranged=1}
 -- Slots where players normally put an enchant; a missing one is flagged.
-local ENCHANTABLE={Chest=1,Back=1,Wrist=1,Hands=1,Feet=1,MainHand=1,SecondaryHand=1}
+local ENCHANTABLE={Neck=1,Chest=1,Back=1,Wrist=1,Hands=1,Feet=1,MainHand=1,SecondaryHand=1}  -- Forever added neck enchants
 local NO_ILVL={Shirt=1,Tabard=1}
 local enchantPattern
 do
@@ -48,6 +48,8 @@ end
 local function shortText(text)
  text=text:gsub('^Enchant %a+ %- ',''):gsub('^Enchant ','')
  if #text>22 then text=text:sub(1,21)..'…' end
+ return text end
+local function shortBottom(text) if #text>9 then text=text:sub(1,8)..'…' end
  return text
 end
 local function canBeEnchanted(name,link)
@@ -74,7 +76,7 @@ local function overlay(button,name)
  o.ench=button:CreateFontString(nil,'OVERLAY')
  o.ench:SetFont(STANDARD_TEXT_FONT,10,'OUTLINE')
  if LEFT[name] then o.ench:SetPoint('LEFT',button,'RIGHT',6,-9);o.ench:SetJustifyH('LEFT')
- elseif BOTTOM[name] then o.ench:SetPoint('BOTTOM',button,'TOP',0,3);o.ench:SetJustifyH('CENTER')
+ elseif BOTTOM[name] then o.ench:SetPoint('TOP',button,'BOTTOM',0,-2);o.ench:SetWidth(54);o.ench:SetJustifyH('CENTER');o.ench:SetWordWrap(false)
  else o.ench:SetPoint('RIGHT',button,'LEFT',-6,-9);o.ench:SetJustifyH('RIGHT') end
  overlays[button]=o
  return o
@@ -103,9 +105,9 @@ local function refreshSlot(name)
    local key=slotId..link
    if cache[key]==nil then cache[key]=enchantText(slotId) or false end
    o.ench:SetTextColor(.35,1,.45)
-   o.ench:SetText(shortText(cache[key] or 'Enchanted'))
+   local label=shortText(cache[key] or 'Enchanted');o.ench:SetText(BOTTOM[name] and shortBottom(label) or label)
   elseif atMaxLevel() and canBeEnchanted(name,link) then
-   o.ench:SetTextColor(1,.25,.25);o.ench:SetText('No enchant')
+   o.ench:SetTextColor(1,.25,.25);o.ench:SetText(BOTTOM[name] and 'None' or 'No enchant')
   end
  end
 end
@@ -133,15 +135,24 @@ function C.Update()
  if not PaperDollFrame and not CharacterFrame then return end
  for _,name in ipairs(SLOTS) do pcall(refreshSlot,name) end
  if not avgText then
-  local parent=PaperDollFrame or CharacterFrame
-  avgText=parent:CreateFontString(nil,'OVERLAY')
-  avgText:SetFont(STANDARD_TEXT_FONT,12,'OUTLINE')
+  local parent=CharacterFrame or PaperDollFrame
+  -- Own frame in a higher strata than the 3D model and the stats panes, so nothing paints over it.
+  local holder=CreateFrame('Frame',nil,parent)
+  holder:SetSize(170,18);holder:SetFrameStrata('DIALOG');holder:SetFrameLevel(parent:GetFrameLevel()+60)
   local anchor=_G.CharacterLevelText
-  if anchor then avgText:SetPoint('TOP',anchor,'BOTTOM',0,-2) else avgText:SetPoint('TOP',parent,'TOP',0,-60) end
+  if anchor and anchor.GetText and anchor:GetText() and anchor:GetText()~='' then
+   -- Same row as "Level 60 Priest", just to its right.
+   holder:SetPoint('LEFT',anchor,'RIGHT',12,0)
+  else holder:SetPoint('TOP',parent,'TOP',0,-34) end
+  avgText=holder:CreateFontString(nil,'OVERLAY')
+  avgText:SetFont(STANDARD_TEXT_FONT,13,'OUTLINE');avgText:SetPoint('LEFT',holder,'LEFT',0,0);avgText:SetJustifyH('LEFT')
+  C.holder=holder
  end
+ C.lastError=nil
  if cfg().charItemLevel==false then avgText:SetText('');return end
  local ok,level=pcall(averageLevel)
- if ok and level then avgText:SetText(string.format('|cffd2b077Item level|r |cffffffff%.1f|r',level)) else avgText:SetText('') end
+ if not ok then C.lastError=level end
+ if ok and level then avgText:SetText(string.format('|cffd2b077iLvl|r |cffffffff%.1f|r',level)) else avgText:SetText('') end
 end
 
 local pendingUpdate=false
@@ -170,3 +181,14 @@ end
 local loader=CreateFrame('Frame')
 loader:RegisterEvent('PLAYER_LOGIN');loader:RegisterEvent('ADDON_LOADED')
 loader:SetScript('OnEvent',function() pcall(hook) end)
+
+function C.Debug()
+ local function p(t) print('|cffd2b077Trailbound char:|r '..t) end
+ p('CharacterFrame='..tostring(CharacterFrame~=nil)..' shown='..tostring(CharacterFrame and CharacterFrame:IsShown())..' levelText='..tostring(_G.CharacterLevelText and _G.CharacterLevelText:GetText()))
+ local api,equipped=nil,nil
+ if GetAverageItemLevel then api,equipped=GetAverageItemLevel() end
+ p('GetAverageItemLevel -> '..tostring(api)..' / '..tostring(equipped))
+ local ok,v=pcall(averageLevel);p('computed -> '..tostring(v)..(ok and '' or ' (error)'))
+ p('text created='..tostring(avgText~=nil)..' text="'..tostring(avgText and avgText:GetText())..'" visible='..tostring(C.holder and C.holder:IsVisible()))
+ if C.lastError then p('last error: '..tostring(C.lastError)) end
+end

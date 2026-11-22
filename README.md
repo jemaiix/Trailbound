@@ -186,3 +186,10 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 
 ## 1.8.96
 - Settings that need a UI reload (square minimap, minimap spacing/mail icon, minimap addon icons, stance bar, draggable bags) now pop up a "Reload UI" prompt when changed.
+
+## 1.8.97
+- Buff reminders read "does not stack with ..." from the buffs already on you (camp buffs such as Enchanted Lute vs Mark of the Wild, Mana Well vs Blessing of Wisdom, Fish Bowl vs Blessing of Kings, Fire Shield vs Thorns) and stop nagging for the covered buff; Paladin blessing suggestions respect them too.
+- Character window: neck enchants are checked; the average item level now sits on its own frame above the 3D model so it is visible.
+
+## 1.8.98
+- Character window: average item level moved next to "Level 60 Priest" in a frame above everything else; weapon-slot enchant text sits under the weapon slots instead of overlapping. `/tb ilvl` prints diagnostics.
