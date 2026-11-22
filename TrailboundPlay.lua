@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.88'
+ForeverAssistPlay.Version='1.8.95'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -968,7 +968,7 @@ local function reagentRefresh()
  else window:SetWidth(math.min(f:GetWidth(),x0*2+cols*grid.colStep-(grid.colStep-grid.size))) end
  window:SetHeight(height);window:Show()
  local lift=height-1
- if math.abs((f.tbLift or 0)-lift)>.5 then setLift(f,lift) end
+ setLift(f,lift)
  local art=nativeEmptyArt(f)
  for slot=1,slots do
   local b=reagentButtons[slot] or reagentSlot(window,slot);reagentButtons[slot]=b
@@ -995,8 +995,8 @@ local function reagentRefresh()
  for slot=slots+1,#reagentButtons do reagentButtons[slot]:Hide() end
 end
 function P.Settings() return settings() end
+-- The drawer is made of plain frames, so it is built in combat too; only moving the bag waits for combat to end.
 function P.UpdateReagentPanel()
- if combat() then return end
  local ok,err=pcall(reagentRefresh)
  if not ok then reagentFailed(err) end
 end
@@ -1062,7 +1062,7 @@ bagWarningEvents:SetScript('OnEvent',function() P.UpdateBagWarning() end)
 local bagLoginFrame=CreateFrame('Frame');bagLoginFrame:RegisterEvent('PLAYER_ENTERING_WORLD');bagLoginFrame:RegisterEvent('PLAYER_REGEN_ENABLED')
 bagLoginFrame:SetScript('OnEvent',function()
  if not C_Timer then return end
- C_Timer.After(.5,function() if not combat() then pcall(P.HookReagentPanel);pcall(P.HookBlizzardReagentFrame);pcall(P.EnsureSortButton) end end)
+ C_Timer.After(.5,function() pcall(P.HookReagentPanel);pcall(P.HookBlizzardReagentFrame);if not combat() then pcall(P.EnsureSortButton) end end)
  C_Timer.After(3,function() if not combat() then pcall(P.EnsureSortButton) end end)
 end)
 -- Camp IDs are Forever spell records, not assumed buff names or fixed durations.
@@ -1361,9 +1361,14 @@ local squareApplied=false
 -- Close the gap between the zone header and the minimap (the room the mail icon used to take)
 -- and move the mail icon onto the map's top-left corner. Idempotent: it measures against the
 -- anchor the client set, so a client re-layout is simply measured again.
+local function inPvPInstance()
+ local ok,_,kind=pcall(IsInInstance)
+ return ok and (kind=='pvp' or kind=='arena')
+end
 local minimapState={applied=0}
 local minimapPending=false
 function P.ApplyCompactMinimap()
+ if inPvPInstance() then return end
  if combat() or not MinimapCluster or not Minimap or not account then return end
  local on=settings().compactMinimap~=false
  local mover=MinimapCluster.MinimapContainer or Minimap
@@ -1395,6 +1400,7 @@ function P.ApplyCompactMinimap()
  end
 end
 local function scheduleCompact()
+ if inPvPInstance() then return end
  if minimapPending or not C_Timer then return end
  minimapPending=true
  C_Timer.After(.05,function() minimapPending=false;pcall(P.ApplyCompactMinimap) end)
@@ -1431,9 +1437,11 @@ local function setBlobRings(square)
  if not square then blobRingOriginal=nil end
 end
 function P.ReapplySquareRings()
+ if inPvPInstance() then return end
  if squareApplied then setBlobRings(true) end
 end
 function P.ApplySquareMinimap()
+ if inPvPInstance() then return end
  if not Minimap or not Minimap.SetMaskTexture or combat() then return end
  -- A round minimap that was never made square is left exactly as the client draws it.
  if not settings().squareMinimap and not squareApplied then pcall(P.ApplyCompactMinimap);return end
@@ -1823,17 +1831,23 @@ function P.Event(_,event,a,b,c)
  elseif (event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED') and a=='player' then craft=nil
  elseif event=='ADDON_LOADED' then P.ApplyStanceBar();setupErrors();hookBags();hookMail();hookTrainer()
  elseif event=='SPELLS_CHANGED' then paladinCache=nil;P.BuildRings()
- elseif event=='PLAYER_REGEN_ENABLED' then P.ApplySettings()
+ elseif event=='PLAYER_REGEN_ENABLED' then P.ApplySettings();pcall(P.UpdateReagentPanel)
  elseif event=='BAG_UPDATE_DELAYED' then hookBags()
  end
 end
 events:SetScript('OnEvent',P.Event)
-events:SetScript('OnUpdate',function(_,elapsed)
+local tickFailures,tickPausedUntil=0,0
+local function playTick(elapsed)
  animateSwings()
  if not account then return end;trainTick(elapsed);clock=clock+elapsed
  swingClock=swingClock+elapsed;if swingClock>=.05 then swingClock=0;updateSwings() end;slowClock=slowClock+elapsed
  if clock>=.1 then clock=0;P.UpdateCampTimer();P.UpdateNutrition();updateCraft() end
  if slowClock>=1 then slowClock=0;P.UpdateXP();P.CraftPreview();P.CheckCamp();P.CheckNutrition() end
+end
+events:SetScript('OnUpdate',function(_,elapsed)
+ if GetTime()<tickPausedUntil then return end
+ -- Restricted data in battlegrounds must not turn into an error every frame: pause after repeated failures.
+ if pcall(playTick,elapsed) then tickFailures=0 else tickFailures=tickFailures+1;if tickFailures>=3 then tickFailures=0;tickPausedUntil=GetTime()+30 end end
 end)
 SLASH_FOREVERASSISTPLAY1='/tbplay'
 SlashCmdList.FOREVERASSISTPLAY=function(msg)

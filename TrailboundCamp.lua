@@ -1,6 +1,6 @@
 -- Camp items (Forever's campfire objects): show the buff each one gives, on item and object tooltips.
 -- Effects follow Forever's published camping tables; numbers scale with your level where noted.
-ForeverAssistCamp={Version='1.8.88'}
+ForeverAssistCamp={Version='1.8.95'}
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local MANA_WELL='Mana regeneration: %d mana every 5 seconds at your level (10 to 29 by level). Does not stack with Blessing of Wisdom.'
 local function manaWell()

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.88
+-- Trailbound 1.8.95
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -12,7 +12,7 @@
 --------------------------------------------------------------------
 local DB, characterDB
 local defaults = {
-    gossipVendor = true, gossipTrainer = false, gossipBank = true, gossipTaxi = true, compactMinimap = true, mailPrefill = true, customBag = false,
+    gossipVendor = true, gossipTrainer = false, gossipBank = true, gossipTaxi = true, fishSpace = false, fishLure = true, fishSounds = true, pvpTabPlayers = true, bgRelease = false, charItemLevel = true, charEnchants = true, compactMinimap = true, mailPrefill = true, customBag = false,
     acceptQuests = true, turnInQuests = true,
     sellJunk = true, junkReport = true,
     fsr = true, fsrScale = 1,
@@ -633,6 +633,14 @@ local function UpdateReminder()
             for _, n in ipairs(g.names) do
                 if have[n] then ok = true break end
             end
+            -- Thorns and a warlock's Fire Shield cannot both be active, so never nag for Thorns then.
+            if not ok and class=="DRUID" then
+                local fireShield=SpellNameIcon(2947) or "Fire Shield"
+                if have[fireShield] then
+                    local thorns=SpellNameIcon(467) or "Thorns"
+                    for _, n in ipairs(g.names) do if n==thorns then ok=true break end end
+                end
+            end
             if not ok then list[#list + 1] = g end
         end
         for _, g in ipairs(ForeverAssistSystems.GatheringReminders()) do list[#list + 1] = g end
@@ -703,6 +711,13 @@ local function Header(parent, text, x, y)
     fs:SetText(text)
 end
 
+-- Everything the options search can find: individual settings, notes, and sections.
+local searchIndex = {}
+local function registerSearch(parent, widget, text, kind)
+    if type(text) == "string" and text ~= "" and parent then
+        searchIndex[#searchIndex + 1] = { parent = parent, widget = widget, text = text, kind = kind }
+    end
+end
 local function Check(parent, key, label, x, y, onChange)
     local name = "FACheck" .. key
     local cb = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
@@ -714,6 +729,8 @@ local function Check(parent, key, label, x, y, onChange)
         if onChange then onChange() end
     end)
     refreshers[#refreshers + 1] = function() cb:SetChecked(DB[key]) end
+    registerSearch(parent, cb, label, "setting")
+    return cb
 end
 
 local function Slider(parent, key, label, x, y, minV, maxV, step, onChange)
@@ -741,6 +758,8 @@ local function Slider(parent, key, label, x, y, minV, maxV, step, onChange)
         text:SetText(label .. ": " .. string.format("%g", DB[key]))
         s.syncing = false
     end
+    registerSearch(parent, s, label, "setting")
+    return s
 end
 
 local function Button(parent, label, x, y, onClick)
@@ -750,6 +769,7 @@ local function Button(parent, label, x, y, onClick)
     b:SetText(label)
     b:SetScript("OnClick", onClick)
     if ForeverAssistStyleButton then ForeverAssistStyleButton(b) end
+    registerSearch(parent, b, label, "button")
     return b
 end
 
@@ -762,15 +782,17 @@ end
 
 local function CreateOptions()
     local function label(parent,value,x,y,width,font)
-        local t=parent:CreateFontString(nil,"OVERLAY",font or "TrailboundSmall");t:SetPoint("TOPLEFT",x,y);t:SetWidth(width or 460);t:SetJustifyH("LEFT");t:SetText(value);return t
+        local t=parent:CreateFontString(nil,"OVERLAY",font or "TrailboundSmall");t:SetPoint("TOPLEFT",x,y);t:SetWidth(width or 460);t:SetJustifyH("LEFT");t:SetText(value)
+        if not font and type(value)=="string" and #value>25 then registerSearch(parent,t,value,"note") end
+        return t
     end
     local function tint(parent,x,y,width,height,r,g,b,a)
         local t=parent:CreateTexture(nil,"BACKGROUND");t:SetPoint("TOPLEFT",x,y);t:SetSize(width,height);t:SetColorTexture(r,g,b,a or 1);return t
     end
     opt=CreateFrame("Frame","ForeverAssistOptions",UIParent,"BackdropTemplate")
-    opt:SetSize(860,680);opt:SetPoint("CENTER");opt:SetFrameStrata("DIALOG");opt:SetClampedToScreen(true);opt:SetMovable(true);opt:EnableMouse(true);opt:RegisterForDrag("LeftButton");opt:SetScript("OnDragStart",opt.StartMoving);opt:SetScript("OnDragStop",opt.StopMovingOrSizing)
+    opt:SetSize(860,710);opt:SetPoint("CENTER");opt:SetFrameStrata("FULLSCREEN_DIALOG");opt:SetToplevel(true);opt:SetClampedToScreen(true);opt:SetMovable(true);opt:EnableMouse(true);opt:RegisterForDrag("LeftButton");opt:SetScript("OnDragStart",opt.StartMoving);opt:SetScript("OnDragStop",opt.StopMovingOrSizing)
     opt:SetBackdrop({bgFile="Interface/DialogFrame/UI-DialogBox-Background",edgeFile="Interface/DialogFrame/UI-DialogBox-Border",tile=true,tileSize=32,edgeSize=24,insets={left=6,right=6,top=6,bottom=6}});opt:SetBackdropColor(.22,.17,.12,1);opt:SetBackdropBorderColor(.6,.48,.31,1)
-    tint(opt,8,-8,844,56,.10,.065,.035);tint(opt,8,-65,186,587,.075,.05,.03);tint(opt,194,-65,1,587,.42,.30,.15)
+    tint(opt,8,-8,844,56,.10,.065,.035);tint(opt,8,-65,186,617,.075,.05,.03);tint(opt,194,-65,1,617,.42,.30,.15)
     local brand=opt:CreateTexture(nil,"ARTWORK");brand:SetSize(44,44);brand:SetPoint("TOPLEFT",18,-10)
     brand:SetTexture("Interface/AddOns/Trailbound/Media/TrailboundMark");opt.brandIcon=brand
     local wordmark=label(opt,"Trailbound",74,-14,380,"TrailboundTitle");wordmark:SetFont('Fonts/FRIZQT__.TTF',24,'');wordmark:SetTextColor(.94,.80,.48)
@@ -935,7 +957,26 @@ local function CreateOptions()
     backBuff:ClearAllPoints();backBuff:SetPoint("BOTTOMLEFT",22,12)
     buffOpt:Hide()
 
+    local fishing=section('fishing','ForeverAssistFishingOptions','Fishing','Cast and reel in with the space bar while a fishing pole is equipped.')
+    Check(fishing,"fishSpace","Fish with the space bar",0,-70,function() ForeverAssistFishing.Apply() end)
+    Check(fishing,"fishLure","Apply a lure from my bags first (when the pole has none)",0,-103,function() ForeverAssistFishing.Update() end)
+    Check(fishing,"fishSounds","Louder fishing sounds while a pole is equipped",0,-136,function() ForeverAssistFishing.Update() end)
+    label(fishing,'Only active while a fishing pole is equipped; with any other weapon, Space works as normal. Press Space to cast. With the line out, press Space again to reel in and loot the fish, then Space casts again. If a lure is needed and you carry one, the first press applies it and the next press casts. Turning this on also enables "interact with target" in the game options so Space can reach the bobber. Louder fishing sounds raise effects volume to full and lower music, ambience and dialogue while a pole is equipped, then put your volumes back when it is not.',2,-175,470)
+    local pvp=section('pvp','ForeverAssistPvPOptions','PvP & character','Battleground and arena helpers, plus gear details on the character window.')
+    heading(pvp,'Arenas & battlegrounds',-70)
+    Check(pvp,"pvpTabPlayers","Tab targets enemy players only in arenas and battlegrounds",0,-99,function() ForeverAssistPvP.Update() end)
+    Check(pvp,"bgRelease","Automatically release spirit when I die in a battleground",0,-132)
+    label(pvp,'Tab switches automatically by zone: enemy players only inside arenas and battlegrounds (no critters, pets or NPCs); dungeons, raids and the open world keep normal Tab. It uses your own Tab key. Hold Shift while dying to skip the automatic release, and it never releases if you can self-resurrect (Soulstone, Reincarnation).',2,-170,470)
+    heading(pvp,'Character window (C)',-262)
+    Check(pvp,"charItemLevel","Show item levels on equipped items and your average item level",0,-291,function() ForeverAssistCharacter.Update() end)
+    Check(pvp,"charEnchants","Show enchants on equipped items and flag missing ones",0,-324,function() ForeverAssistCharacter.Update() end)
+    label(pvp,'Item levels appear on each item, your equipped average item level sits under your level, and enchants are listed beside each item. Items that can be enchanted but are not show a red "No enchant" at maximum level.',2,-362,470)
+    local searchPage=CreateFrame("Frame","ForeverAssistSearchResults",opt);searchPage:SetSize(500,465);searchPage:SetPoint("TOPLEFT",216,-83);searchPage:Hide()
+    sections['search']=searchPage;searchPage.journalTitle='Search results'
+    label(searchPage,'Search results',0,0,490,"TrailboundTitle")
+    local searchHint=label(searchPage,'',0,-29,490)
     local function select(key)
+        if key~='search' then opt.lastSection=key end
         selected=key;opt.selectedCategory=key
         footer:SetText('Trailbound / '..sections[key].journalTitle..'     •     Changes save as you go')
         for name,page in pairs(sections) do page:SetShown(name==key) end
@@ -950,6 +991,7 @@ local function CreateOptions()
         local b=CreateFrame("Button",nil,opt);b:SetSize(174,34);b:SetPoint("TOPLEFT",10,y);b.navLabel=title;b.key=key
         b.bg=tint(b,0,0,174,34,.075,.05,.03);b.mark=tint(b,0,0,3,34,.85,.64,.26);b.mark:Hide()
         b.originalY=y;b.searchText=(title..' '..(keywords or '')):lower()
+        searchIndex[#searchIndex+1]={nav=b,text=title,keywords=keywords or '',kind='section'}
         label(b,title,20,-10,148)
         b:SetScript("OnClick",function()
             if action then action();footer:SetText('Trailbound / '..title..'     •     Changes save as you go')
@@ -976,23 +1018,147 @@ local function CreateOptions()
     navigation('progress','Experience & travel',-268,nil,'xp levels played flight leveling')
     navigation('professions','Professions & prices',-302,nil,'crafting profit auction ah materials tsm auctionator herbs ore gathering nodes sparkle')
     navigation('display','Minimap & sound',-336,nil,'display camera audio map launchers')
-    opt.editorsHeading=groupHeading('DISPLAYS & CONTROLS',-390)
-    navigation(nil,'Buff & pet reminders',-411,function() ForeverAssistShowEditor(buffOpt) end,'sleeping bag tracking')
-    navigation(nil,'External buff notices',-445,ForeverAssistExternals.Options,'power infusion')
-    navigation(nil,'Swing timer',-479,function() ForeverAssistPlay.Options('swing') end,'weapon appearance')
-    navigation(nil,'Action rings & keys',-513,ForeverAssistPlay.RingEditor,'keybind macro')
-    navigation(nil,'Chat appearance',-547,ForeverAssistChat.Options,'url copy icons channel font')
-    navigation(nil,'Settings profiles',-581,ForeverAssistExtras.ToggleProfiles,'account character')
+    navigation('fishing','Fishing',-370,nil,'fish lure bobber space bar pole cast')
+    navigation('pvp','PvP & character',-404,nil,'pvp battleground arena tab target enemy players release spirit character item level ilvl enchant gear')
+    opt.editorsHeading=groupHeading('DISPLAYS & CONTROLS',-447)
+    navigation(nil,'Buff & pet reminders',-468,function() ForeverAssistShowEditor(buffOpt) end,'sleeping bag tracking thorns')
+    navigation(nil,'External buff notices',-501,ForeverAssistExternals.Options,'power infusion')
+    navigation(nil,'Swing timer',-534,function() ForeverAssistPlay.Options('swing') end,'weapon appearance')
+    navigation(nil,'Action rings & keys',-567,ForeverAssistPlay.RingEditor,'keybind macro')
+    navigation(nil,'Chat appearance',-600,ForeverAssistChat.Options,'url copy icons channel font')
+    navigation(nil,'Settings profiles',-633,ForeverAssistExtras.ToggleProfiles,'account character')
     local noResults=label(opt,'No matching section.',22,-180,160);noResults:Hide();opt.noResults=noResults
-    finder:SetScript('OnTextChanged',function(self)
-        local query=(self:GetText()or ''):lower():match('^%s*(.-)%s*$');local count=0
-        opt.preferencesHeading:SetShown(query=='');opt.editorsHeading:SetShown(query=='')
-        for _,entry in ipairs(nav)do
-            local show=query==''or entry.searchText:find(query,1,true)~=nil
-            entry:SetShown(show);entry:ClearAllPoints();entry:SetPoint('TOPLEFT',10,query==''and entry.originalY or -150-count*36)
-            if show then count=count+1 end
+    -- Search: words, synonyms and small typos across every setting, note and section.
+    local SYN_GROUPS={
+     {'sound','audio','volume','music','noise','sfx'},{'gold','money','coin','coins','silver','copper','cash'},{'sell','vendor','merchant','junk','trash','gray','grey'},
+     {'bank','vault','deposit'},{'bag','bags','inventory','backpack','reagent','reagents'},{'mail','mailbox','post','letter','letters'},{'quest','quests','questing'},
+     {'train','trainer','training','learn'},{'flight','fly','taxi','flightmaster','gryphon','windrider'},{'xp','exp','experience','level','levels','played'},
+     {'chat','message','messages','text','whisper'},{'map','minimap','worldmap','zone','coordinates'},{'minimap','square','round'},{'fish','fishing','bobber','lure','pole','cast'},
+     {'auto','automatic','automatically'},{'repair','durability','armor','broken'},{'reminder','reminders','buff','buffs','aura','pet'},{'tooltip','tooltips','hover'},
+     {'key','keys','keybind','binding','hotkey','shortcut'},{'move','drag','unlock','position','lock','edit','layout'},{'swing','weapon','attack','melee','timer'},
+     {'food','drink','eat','well','fed','mana','regen'},{'profession','professions','crafting','recipe','recipes','skill'},{'herb','herbs','ore','mining','gathering','nodes','herbalism'},
+     {'ammo','arrows','bullets','hunter'},{'poison','poisons','rogue'},{'camp','campfire','tent'},{'loot','looting','autoloot'},{'size','scale','bigger','smaller'},
+     {'show','display','hide','visible','toggle'},{'price','prices','auction','ah','market'},{'gossip','npc','talk','dialog','interact'},
+    }
+    local syn={}
+    for _,group in ipairs(SYN_GROUPS) do for _,w in ipairs(group) do syn[w]=syn[w] or {};for _,o in ipairs(group) do if o~=w then syn[w][#syn[w]+1]=o end end end end
+    local function words(s) local list={};for w in (s or ''):lower():gsub('[^%w]+',' '):gmatch('%S+') do list[#list+1]=w end;return list end
+    local function within(a,b,limit)
+        if math.abs(#a-#b)>limit then return false end
+        local prev={};for j=0,#b do prev[j]=j end
+        for i=1,#a do
+            local cur={[0]=i};local best=i
+            for j=1,#b do
+                local cost=(a:byte(i)==b:byte(j)) and 0 or 1
+                local v=math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+cost);cur[j]=v;if v<best then best=v end
+            end
+            if best>limit then return false end
+            prev=cur
         end
-        noResults:SetShown(count==0)
+        return prev[#b]<=limit
+    end
+    local function wordScore(token,word)
+        if word==token then return 4 end
+        if word:sub(1,#token)==token then return 3 end
+        if #token>=3 and word:find(token,1,true) then return 2 end
+        if #token>=4 and within(token,word,#token>=8 and 2 or 1) then return 1 end
+        return 0
+    end
+    local function sectionTitleOf(entry)
+        if entry.kind=='section' then return nil end
+        for _,page in pairs(sections) do if page==entry.parent then return page.journalTitle end end
+        if entry.parent==buffOpt then return 'Buff & pet reminders' end
+    end
+    local function scoreEntry(entry,tokens)
+        if not entry.main then
+            entry.main=words(entry.text)
+            entry.extra=words((sectionTitleOf(entry) or '')..' '..(entry.keywords or ''))
+        end
+        local total,matched=0,0
+        for _,token in ipairs(tokens) do
+            local best=0
+            local terms={{token,1}}
+            for _,s in ipairs(syn[token] or {}) do terms[#terms+1]={s,.7} end
+            for _,term in ipairs(terms) do
+                for _,w in ipairs(entry.main) do local v=wordScore(term[1],w)*term[2];if v>best then best=v end end
+                for _,w in ipairs(entry.extra) do local v=wordScore(term[1],w)*term[2]*.6;if v>best then best=v end end
+            end
+            if best>0 then matched=matched+1;total=total+best end
+        end
+        return total,matched
+    end
+    local function search(query)
+        local tokens=words(query);if #tokens==0 then return {} end
+        local full,partial={}, {}
+        for _,entry in ipairs(searchIndex) do
+            if entry.kind=='section' or sectionTitleOf(entry) then
+                local score,matched=scoreEntry(entry,tokens)
+                if matched>0 then
+                    local item={entry=entry,score=score+(entry.kind=='setting' and .5 or 0)+(entry.kind=='section' and .3 or 0)}
+                    if matched==#tokens then full[#full+1]=item else partial[#partial+1]=item end
+                end
+            end
+        end
+        local list=#full>0 and full or partial
+        table.sort(list,function(a,b) if a.score~=b.score then return a.score>b.score end return a.entry.text<b.entry.text end)
+        return list,#full==0 and #partial>0
+    end
+    local function highlight(entry)
+        local w=entry.widget;if not w then return end
+        local parent=w:GetParent() or opt
+        local hl=parent.tbSearchGlow
+        if not hl then hl=parent:CreateTexture(nil,'OVERLAY');parent.tbSearchGlow=hl end
+        hl:ClearAllPoints();hl:SetColorTexture(1,.82,.3,.32)
+        if entry.kind=='setting' and w:GetObjectType()=='CheckButton' then hl:SetPoint('TOPLEFT',w,'TOPLEFT',-4,2);hl:SetSize(430,30)
+        elseif w.GetObjectType and w:GetObjectType()=='FontString' then hl:SetPoint('TOPLEFT',w,'TOPLEFT',-4,3);hl:SetPoint('BOTTOMRIGHT',w,'BOTTOMRIGHT',4,-3)
+        else hl:SetPoint('TOPLEFT',w,'TOPLEFT',-6,6);hl:SetPoint('BOTTOMRIGHT',w,'BOTTOMRIGHT',6,-6) end
+        hl:Show()
+        local token=(parent.tbSearchToken or 0)+1;parent.tbSearchToken=token
+        C_Timer.After(2.6,function() if parent.tbSearchToken==token then hl:Hide() end end)
+    end
+    local suppress=false
+    local function jump(entry)
+        suppress=true;finder:SetText('');finder:ClearFocus();suppress=false
+        if entry.kind=='section' then
+            local click=entry.nav:GetScript('OnClick');if click then click(entry.nav) end
+            return
+        end
+        local key
+        for k,page in pairs(sections) do if page==entry.parent then key=k end end
+        if key then select(key)
+        elseif entry.parent==buffOpt then ForeverAssistShowEditor(buffOpt) end
+        C_Timer.After(.05,function() highlight(entry) end)
+    end
+    local resultRows={}
+    for i=1,12 do
+        local r=CreateFrame('Button',nil,searchPage);r:SetSize(490,34);r:SetPoint('TOPLEFT',0,-62-(i-1)*36)
+        r.bg=r:CreateTexture(nil,'BACKGROUND');r.bg:SetAllPoints();r.bg:SetColorTexture(.075,.05,.03,1)
+        r.title=r:CreateFontString(nil,'OVERLAY','TrailboundText');r.title:SetPoint('TOPLEFT',10,-4);r.title:SetWidth(470);r.title:SetJustifyH('LEFT')
+        r.where=r:CreateFontString(nil,'OVERLAY','TrailboundSmall');r.where:SetPoint('TOPLEFT',10,-19);r.where:SetWidth(470);r.where:SetJustifyH('LEFT');r.where:SetTextColor(.73,.58,.34)
+        r:SetScript('OnEnter',function(self) self.bg:SetColorTexture(.2,.13,.06,1) end)
+        r:SetScript('OnLeave',function(self) self.bg:SetColorTexture(.075,.05,.03,1) end)
+        r:SetScript('OnClick',function(self) if self.entry then jump(self.entry) end end)
+        r:Hide();resultRows[i]=r
+    end
+    finder:SetScript('OnTextChanged',function(self)
+        if suppress then return end
+        local query=(self:GetText()or ''):match('^%s*(.-)%s*$')
+        if query=='' then
+            if selected=='search' then select(opt.lastSection or 'general') end
+            return
+        end
+        local results,partial=search(query)
+        for i,row in ipairs(resultRows) do
+            local item=results[i]
+            if item then
+                local e=item.entry;row.entry=e
+                row.title:SetText(e.kind=='section' and (e.text..'  (section)') or e.text)
+                row.where:SetText(e.kind=='section' and 'Open this page' or ('in '..(sectionTitleOf(e) or '')))
+                row:Show()
+            else row.entry=nil;row:Hide() end
+        end
+        searchHint:SetText(#results==0 and 'Nothing matched. Try other words, for example: sound, gold, bank, chat, minimap, fishing, repair.' or (partial and 'No exact match for all words; closest matches:' or ('Matches for "'..query..'" - click one to jump to it.')))
+        select('search')
     end)
     finder:SetScript('OnEscapePressed',function(self)self:SetText('');self:ClearFocus()end)
     opt:SetScript("OnShow",function()
@@ -1168,11 +1334,18 @@ end)
 -- reminder refresh ticker
 local acc = 0
 local ticker = CreateFrame("Frame")
+local reminderFailures, reminderPausedUntil = 0, 0
 ticker:SetScript("OnUpdate", function(_, elapsed)
     acc = acc + elapsed
     if acc >= 0.5 then
         acc = 0
-        if DB and rem then UpdateReminder() end
+        if DB and rem and GetTime() >= (reminderPausedUntil or 0) then
+            -- A restricted-data error (battlegrounds) must never repeat twice a second.
+            if pcall(UpdateReminder) then reminderFailures = 0
+            else reminderFailures = (reminderFailures or 0) + 1
+                if reminderFailures >= 3 then reminderFailures = 0; reminderPausedUntil = GetTime() + 30 end
+            end
+        end
     end
 end)
 
@@ -1194,7 +1367,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.88 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.8.95 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
@@ -1207,6 +1380,10 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
     elseif msg == "vendor" then Toggle("gossipVendor", "Auto vendor")
     elseif msg == "trainer" then Toggle("gossipTrainer", "Auto trainer")
     elseif msg == "taxi" then Toggle("gossipTaxi", "Auto flight master")
+    elseif msg == "names" then ForeverAssistNameDebug()
+    elseif msg == "release" then Toggle("bgRelease", "Auto-release in battlegrounds")
+    elseif msg == "pvptab" then Toggle("pvpTabPlayers", "Enemy-player Tab in PvP", function() ForeverAssistPvP.Update() end)
+    elseif msg == "fish" then Toggle("fishSpace", "Space-bar fishing");ForeverAssistFishing.Apply()
     elseif msg == "quests" then
         Toggle("acceptQuests", "Auto-accept quests")
         DB.turnInQuests = DB.acceptQuests

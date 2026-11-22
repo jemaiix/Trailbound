@@ -1,5 +1,5 @@
 -- Live minimap-tooltip observations only; never enumerate hidden world objects.
-ForeverAssistGathering={Version='1.8.88'}
+ForeverAssistGathering={Version='1.8.95'}
 local G=ForeverAssistGathering
 local settings,character,options
 local icons,glows={},{}
@@ -29,7 +29,8 @@ local rows={
 local aliases={}
 for _,row in ipairs(rows)do aliases[row[1]]=row end
 local function safe(v)return not issecretvalue or not issecretvalue(v)end
-local function publicTable(v)return safe(v)and type(v)=='table'and not (issecrettable and issecrettable(v))end
+-- canaccesstable: tables the client marks as off-limits to tainted code (e.g. nameplates in battlegrounds).
+local function publicTable(v)return safe(v)and type(v)=='table'and not (issecrettable and issecrettable(v))and (not canaccesstable or canaccesstable(v))end
 local function combat()return InCombatLockdown and InCombatLockdown()end
 local function number(v)return safe(v)and type(v)=='number'end
 local function call(fn,...)
@@ -222,7 +223,9 @@ function G.Scan()
  if not grid[index]then
   G.Render();index=1;hits={}
   -- Sweep again quickly while moving over nodes; back off when nothing is around.
-  local moving=GetUnitSpeed and (GetUnitSpeed('player') or 0)>0
+  -- Speed is a protected value in battlegrounds and other restricted places; treat that as standing still.
+  local speed=GetUnitSpeed and GetUnitSpeed('player')
+  local moving=type(speed)=='number' and safe(speed) and speed>0
   local rest=(G.nodesFound or 0)>0 and (moving and .1 or .8) or (moving and 1 or 2)
   restUntil=GetTime()+rest
  end
@@ -261,6 +264,7 @@ function G.ApplySettings()
  G.Present()
 end
 function G.Sparkles()
+ if IsInInstance and IsInInstance() then return end
  if not settings or combat()or settings().gatherSparkles==false or not C_NamePlate or not C_NamePlate.GetNamePlates or not UnitIsGameObject then hideGlows();return end
  local seen={}
  local plates=C_NamePlate.GetNamePlates();if not publicTable(plates)then hideGlows();return end
@@ -311,15 +315,27 @@ end
 local frame=CreateFrame('Frame')
 for _,event in ipairs({'PLAYER_REGEN_DISABLED','PLAYER_REGEN_ENABLED','PLAYER_ENTERING_WORLD','SKILL_LINES_CHANGED','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','PLAYER_SOFT_INTERACT_CHANGED'})do pcall(frame.RegisterEvent,frame,event)end
 frame:SetScript('OnEvent',function(_,event)
- if event=='PLAYER_REGEN_DISABLED'then hideIcons();hideGlows();index=1;hits={}else G.ApplySettings();G.Sparkles()end
+ if event=='PLAYER_REGEN_DISABLED'then hideIcons();hideGlows();index=1;hits={}
+ elseif IsInInstance and IsInInstance() then
+  -- Battlegrounds and arenas restrict nameplate data (and fire nameplate events constantly): do nothing there.
+  if event~='NAME_PLATE_UNIT_ADDED' and event~='NAME_PLATE_UNIT_REMOVED' then pcall(hideIcons);pcall(hideGlows) end
+ else pcall(G.ApplySettings);pcall(G.Sparkles) end
 end)
 local scanElapsed,glowElapsed=0,0
+local failures,pausedUntil=0,0
 frame:SetScript('OnUpdate',function(_,dt)
  if not settings then return end
+ -- Nothing to gather inside instances, and battlegrounds restrict the data this reads.
+ if IsInInstance and IsInInstance() then return end
+ local now=GetTime()
+ if now<pausedUntil then return end
  scanElapsed=scanElapsed+dt;glowElapsed=glowElapsed+dt
  if scanElapsed>=.05 then
   scanElapsed=0
-  if GetTime()>=restUntil and not combat()and settings().gatherNodeIcons~=false then G.Scan()end
+  if now>=restUntil and not combat()and settings().gatherNodeIcons~=false then
+   -- An error here must never repeat every tick: after three in a row, pause for a minute.
+   if pcall(G.Scan) then failures=0 else failures=failures+1;if failures>=3 then failures=0;pausedUntil=now+60 end end
+  end
  end
- if glowElapsed>=.5 then glowElapsed=0;G.Sparkles()end
+ if glowElapsed>=.5 then glowElapsed=0;pcall(G.Sparkles) end
 end)

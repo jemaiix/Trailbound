@@ -1,5 +1,5 @@
 -- Read-only market observations and conservative, per-craft estimates.
-ForeverAssistEconomy={Version='1.8.88'}
+ForeverAssistEconomy={Version='1.8.95'}
 local E=ForeverAssistEconomy
 local account,settings,options
 local panels,hooks={},{}
@@ -261,12 +261,22 @@ local function rowRecipe(row,trainer,legacy)
  if not trainer then return E.LegacyRecipe(index,legacy==CraftFrame)end
  return E.TrainerRecipe(index)
 end
+-- One number per recipe row: whichever of vendor profit or auction net is better (it changes with prices).
+local function bestProfit(result)
+ if not result then return end
+ local v,a=result.vendorProfit,result.profit
+ local hasV,hasA=num(v),num(a)
+ if hasV and hasA then if v>a then return v,'V' else return a,'AH' end end
+ if hasV then return v,'V' end
+ if hasA then return a,'AH' end
+end
 function E.DecorateRows(host)
  local trainer=host==ClassTrainerFrame
  local function annotate(row)
   local r=rowRecipe(row,trainer,host);local result=r and E.Estimate(r)
-  if not row.faProfit then row.faProfit=row:CreateFontString(nil,'OVERLAY','TrailboundSmall');row.faProfit:SetPoint('RIGHT',row,'RIGHT',-4,0);row.faProfit:SetWidth(95);row.faProfit:SetJustifyH('RIGHT')end
-  row.faProfit:SetText(settings().craftProfit~=false and result and money(result.profit)or '');row.faProfit:SetFont(STANDARD_TEXT_FONT,10,'OUTLINE')
+  if not row.faProfit then row.faProfit=row:CreateFontString(nil,'OVERLAY','TrailboundSmall');row.faProfit:SetPoint('RIGHT',row,'RIGHT',-4,0);row.faProfit:SetWidth(125);row.faProfit:SetJustifyH('RIGHT')end
+  local value,tag=bestProfit(result)
+  row.faProfit:SetText(settings().craftProfit~=false and value and ('|cff9d9d9d'..tag..'|r '..money(value))or '');row.faProfit:SetFont(STANDARD_TEXT_FONT,10,'OUTLINE')
  end
  local list=host.CraftingPage and host.CraftingPage.RecipeList or host.RecipeList or host
  local box=list.ScrollBox or host.ScrollBox

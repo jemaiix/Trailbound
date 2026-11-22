@@ -154,3 +154,32 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 ## 1.8.88
 - Innkeepers no longer auto-open their vendor window (other vendors still do).
 - Settings now explain that holding Shift while talking to an NPC overrides the auto-open options.
+
+## 1.8.89
+- Space-bar fishing (Fishing page in settings, `/tb fish`): with a fishing pole equipped, Space applies a lure from the bags if needed, casts, and reels in; other weapons leave Space alone.
+
+## 1.8.90
+- Fishing: louder sound mix while a fishing pole is equipped (restored afterwards).
+- Options search finds individual settings and notes with synonyms and typo tolerance, shows results, and highlights the setting it jumps to.
+
+## 1.8.92
+- Fix: gathering scanner no longer runs in instances/battlegrounds and can no longer error every tick (protected speed value, restricted nameplate tables).
+- Profession recipe list shows only the better of vendor profit or AH net per recipe (tagged V or AH).
+
+## 1.8.92
+- Arenas and battlegrounds: Tab targets enemy players only (zone-based, normal Tab in PvE). `/tb pvptab` toggles.
+- Optional automatic spirit release in battlegrounds (`/tb release`; Shift skips; never with a Soulstone).
+- Character window: item levels on equipped items, average item level, enchants shown / "No enchant" flagged at max level.
+- Druid: Thorns reminder is hidden while a warlock's Fire Shield is on you.
+
+## 1.8.93
+- Battlegrounds/arenas: the node scanner's nameplate events and sparkles do nothing inside instances; the reminder ticker and gameplay ticker pause for 30s after repeated errors instead of spamming.
+
+## 1.8.94
+- Battlegrounds/arenas: the minimap compaction, square-map and blob-ring code no longer touches Blizzard's minimap layout inside PvP instances (suspected source of the tainted "iterate a table" error loop).
+
+## 1.8.95
+- Battlegrounds/arenas: chat message hooks and the sender filter are removed inside PvP instances (fixes "string conversion on a secret string"); restored on leaving.
+- Options window: navigation no longer overlaps (heading and entries re-spaced, taller window), window is drawn above other panels.
+- Character names: first + second name detected from more sources; `/tb names` prints what the client reports. Alts need one login to save their full name.
+- Reagent drawer is built when bags open in combat; only the bag lift waits for combat to end.

@@ -1,4 +1,4 @@
-ForeverAssistChat={Version='1.8.88'}
+ForeverAssistChat={Version='1.8.95'}
 local C=ForeverAssistChat
 local settings,options,copyWindow,copyBox
 local identities,wrapped={},{ }
@@ -9,6 +9,10 @@ function C.Remember(author,guid)
  local ok,_,class,_,race,sex=pcall(GetPlayerInfoByGUID,guid)
  if not ok or not safe(class) or not safe(race) or not safe(sex) then return end
  if type(class)=='string' and type(race)=='string' then identities[author]={class=class,race=race,sex=sex} end
+end
+function C.Restricted()
+ local ok,_,kind=pcall(IsInInstance)
+ return ok and (kind=='pvp' or kind=='arena')
 end
 local function hex(s)return (s:gsub('.',function(c)return ('%02x'):format(c:byte())end))end
 local function unhex(s)if #s%2~=0 or s:find('[^%x]')then return end;return (s:gsub('%x%x',function(v)return string.char(tonumber(v,16))end))end
@@ -90,7 +94,8 @@ function C.Apply()
   if frame and frame.AddMessage and i~=2 then
    if not wrapped[frame]then
     local original=frame.AddMessage;local click=frame:GetScript('OnHyperlinkClick')
-    frame.AddMessage=function(self,msg,...)return original(self,C.Format(msg),...)end
+    local wrapper=function(self,msg,...)return original(self,C.Format(msg),...)end
+    frame.AddMessage=wrapper
     frame:SetScript('OnHyperlinkClick',function(self,link,label,...)
      if C.Link(link)then return end
      -- Ctrl-click on an item stays native (dressing room); copy items with Ctrl+Alt-click instead.
@@ -99,9 +104,12 @@ function C.Apply()
      if settings().chatCopyLinks~=false and wantsCopy and safe(label)and safe(link)and type(link)=='string'then C.Copy(type(label)=='string'and label or link);return end
      if click then return click(self,link,label,...)end
     end)
-    wrapped[frame]={}
+    wrapped[frame]={original=original,wrapper=wrapper,active=true}
    end
    local state=wrapped[frame];local cfg=settings()
+   -- Inside battlegrounds/arenas chat text is restricted: hand the frame back to Blizzard completely.
+   local wantActive=not C.Restricted()
+   if state.original and state.active~=wantActive then frame.AddMessage=wantActive and state.wrapper or state.original;state.active=wantActive end
    if cfg.chatFontSize then
     local font,size,flags=frame:GetFont();state.font=state.font or {font,size,flags};frame:SetFont(font,cfg.chatFontSize,flags)
    elseif state.font then frame:SetFont(unpack(state.font));state.font=nil end
@@ -117,13 +125,24 @@ function C.Apply()
   end
  end
 end
+-- The sender filter runs inside Blizzard's chat code; in restricted places that taints text handling, so it is removed there.
+function C.SyncFilters()
+ if not C.filter or not ChatFrame_AddMessageEventFilter then return end
+ local want=not C.Restricted()
+ if C.filterOn==want then return end
+ for _,event in ipairs(events)do
+  if want then ChatFrame_AddMessageEventFilter('CHAT_MSG_'..event,C.filter)
+  elseif ChatFrame_RemoveMessageEventFilter then ChatFrame_RemoveMessageEventFilter('CHAT_MSG_'..event,C.filter) end
+ end
+ C.filterOn=want
+end
 function C.Initialize(get)
  settings=get
  if not C.filters and ChatFrame_AddMessageEventFilter then
-  local filter=function(_,_,_,author,...)C.Remember(author,select(10,...));return false end
-  for _,event in ipairs(events)do ChatFrame_AddMessageEventFilter('CHAT_MSG_'..event,filter)end
+  C.filter=function(_,_,_,author,...)C.Remember(author,select(10,...));return false end
   C.filters=true
  end
+ C.SyncFilters()
  C.Apply()
 end
 function C.Options()
@@ -143,5 +162,5 @@ function C.Options()
  end
  ForeverAssistShowEditor(options)
 end
-local frame=CreateFrame('Frame');frame:RegisterEvent('PLAYER_ENTERING_WORLD');frame:RegisterEvent('UPDATE_CHAT_WINDOWS');frame:SetScript('OnEvent',C.Apply)
+local frame=CreateFrame('Frame');frame:RegisterEvent('PLAYER_ENTERING_WORLD');frame:RegisterEvent('UPDATE_CHAT_WINDOWS');frame:SetScript('OnEvent',function()C.SyncFilters();C.Apply()end)
 SLASH_FOREVERASSISTCOPYCHAT1='/copychat';SlashCmdList.FOREVERASSISTCOPYCHAT=function()C.CopyHistory(SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME)end

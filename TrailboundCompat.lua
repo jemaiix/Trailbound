@@ -84,13 +84,50 @@ function ForeverAssistStyleButton(b)
  return b
 end
 -- Keep mail addresses separate from display names and stable character keys.
-function ForeverAssistFullMailName(unit)
+local function plain(text)
+ if type(text)~='string' or (issecretvalue and issecretvalue(text)) then return end
+ text=text:gsub('|c%x%x%x%x%x%x%x%x',''):gsub('|r',''):gsub('|T.-|t',''):gsub('|A.-|a','')
+ return (text:match('^%s*(.-)%s*$'))
+end
+-- Every place the client may expose a "First Second" character name. Returns candidates in priority order.
+local function nameCandidates(unit)
+ local list={}
+ local function add(source,value) list[#list+1]={source=source,value=plain(value)} end
  for _,api in ipairs({'UnitNameUnmodified','UnitFullName','UnitName'}) do
-  if type(_G[api])=='function' then
-   local ok,name=pcall(_G[api],unit)
-   if ok and type(name)=='string' and name:find('%S+%s+%S+') then return name:match('^%s*(.-)%s*$') end
+  if type(_G[api])=='function' then local ok,name=pcall(_G[api],unit);if ok then add(api,name) end end
+ end
+ if GetUnitName then
+  local ok,name=pcall(GetUnitName,unit,false);if ok then add('GetUnitName',name) end
+  ok,name=pcall(GetUnitName,unit,true);if ok then add('GetUnitName(true)',name) end
+ end
+ if unit=='player' then
+  if UnitPVPName then local ok,name=pcall(UnitPVPName,unit);if ok then add('UnitPVPName',name) end end
+  for _,region in ipairs({'CharacterNameText','PlayerName','PlayerFrameNameText'}) do
+   local r=_G[region];if r and r.GetText then local ok,t=pcall(r.GetText,r);if ok then add(region,t) end end
   end
  end
+ return list
+end
+function ForeverAssistFullMailName(unit)
+ local candidates=nameCandidates(unit)
+ local base
+ for _,c in ipairs(candidates) do if c.source=='UnitName' and c.value and c.value~='' then base=c.value end end
+ for _,c in ipairs(candidates) do
+  local value=c.value
+  if value and value~='' then
+   if base and #value>#base and value:find(base,1,true) and not value:find('^'..base:gsub('%p','%%%0')..'$') then
+    -- Titles come before or after the name ("Private Grunt Je Mai", "Grunt Je Mai, the Insane"): keep from the name onward.
+    local from=value:find(base,1,true)
+    local tail=value:sub(from):gsub(',.*$','')
+    tail=tail:match('^%s*(.-)%s*$')
+    if tail:find('%S+%s+%S+') then return tail end
+   elseif value:find('%S+%s+%S+') and (not base or value:sub(1,#base)==base) then return value end
+  end
+ end
+end
+function ForeverAssistNameDebug()
+ for _,c in ipairs(nameCandidates('player')) do print('|cffd2b077Trailbound name:|r '..c.source..' = "'..tostring(c.value)..'"') end
+ print('|cffd2b077Trailbound name:|r chosen = "'..tostring(ForeverAssistFullMailName('player'))..'"')
 end
 -- Realm names like "CAMWOW EU5 Realm 2 PvP" are shown as just the server type (PvP, PvE, RP, RP-PvP).
 function ForeverAssistRealmLabel(realm)
