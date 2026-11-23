@@ -1,5 +1,5 @@
 -- External notices require readable, timed auras from a confirmed other player.
-ForeverAssistExternals={Version='1.8.98'}
+ForeverAssistExternals={Version='1.9.5'}
 local X=ForeverAssistExternals
 local getSettings,root,options
 local spells={[10060]=true,[29166]=true,[1022]=true,[5599]=true,[10278]=true,[1044]=true,
@@ -8,7 +8,7 @@ local spells={[10060]=true,[29166]=true,[1022]=true,[5599]=true,[10278]=true,[10
  [10898]=true,[10899]=true,[10900]=true,[10901]=true}
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 function X.Accept(a)
- if type(a)~='table' or issecrettable and issecrettable(a) or not safe(a.spellId) or not spells[a.spellId] then return false end
+ if not ForeverAssistReadableTable(a) or not safe(a.spellId) or not spells[a.spellId] then return false end
  for _,key in ipairs({'sourceUnit','name','duration','expirationTime','isHelpful','isHarmful'}) do if not safe(a[key]) then return false end end
  if a.isHarmful or a.isHelpful==false or type(a.name)~='string' or type(a.duration)~='number' or a.duration<=0 or type(a.expirationTime)~='number' or a.expirationTime<=GetTime() then return false end
  local source=a.sourceUnit
@@ -53,4 +53,4 @@ end
 local events=CreateFrame('Frame');events:RegisterEvent('UNIT_AURA');events:RegisterEvent('PLAYER_ENTERING_WORLD')
 events:SetScript('OnEvent',function(_,event,unit)if event~='UNIT_AURA' or safe(unit) and unit=='player' then X.Refresh() end end)
 local elapsed=0
-events:SetScript('OnUpdate',function(_,dt)elapsed=elapsed+dt;if elapsed>=.25 then elapsed=0;X.Refresh() end end)
+events:SetScript('OnUpdate',function(_,dt)elapsed=elapsed+dt;if elapsed>=.25 then elapsed=0;pcall(X.Refresh) end end)

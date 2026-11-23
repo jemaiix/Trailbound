@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.8.98'
+ForeverAssistPlay.Version='1.9.5'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -1367,14 +1367,9 @@ local squareApplied=false
 -- Close the gap between the zone header and the minimap (the room the mail icon used to take)
 -- and move the mail icon onto the map's top-left corner. Idempotent: it measures against the
 -- anchor the client set, so a client re-layout is simply measured again.
-local function inPvPInstance()
- local ok,_,kind=pcall(IsInInstance)
- return ok and (kind=='pvp' or kind=='arena')
-end
 local minimapState={applied=0}
 local minimapPending=false
 function P.ApplyCompactMinimap()
- if inPvPInstance() then return end
  if combat() or not MinimapCluster or not Minimap or not account then return end
  local on=settings().compactMinimap~=false
  local mover=MinimapCluster.MinimapContainer or Minimap
@@ -1406,7 +1401,6 @@ function P.ApplyCompactMinimap()
  end
 end
 local function scheduleCompact()
- if inPvPInstance() then return end
  if minimapPending or not C_Timer then return end
  minimapPending=true
  C_Timer.After(.05,function() minimapPending=false;pcall(P.ApplyCompactMinimap) end)
@@ -1443,11 +1437,9 @@ local function setBlobRings(square)
  if not square then blobRingOriginal=nil end
 end
 function P.ReapplySquareRings()
- if inPvPInstance() then return end
  if squareApplied then setBlobRings(true) end
 end
 function P.ApplySquareMinimap()
- if inPvPInstance() then return end
  if not Minimap or not Minimap.SetMaskTexture or combat() then return end
  -- A round minimap that was never made square is left exactly as the client draws it.
  if not settings().squareMinimap and not squareApplied then pcall(P.ApplyCompactMinimap);return end

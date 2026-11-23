@@ -27,6 +27,15 @@ function ForeverAssistMoney(copper)
     return coins .. "c"
 end
 
+-- True only for tables this addon may read and loop over. Battlegrounds hand tainted code event payloads
+-- and API tables that "cannot be accessed while tainted"; looping over one raises an error every time.
+function ForeverAssistReadableTable(t)
+ if type(t)~='table' then return false end
+ if issecretvalue and issecretvalue(t) then return false end
+ if issecrettable and issecrettable(t) then return false end
+ if canaccesstable and not canaccesstable(t) then return false end
+ return true
+end
 -- Never enumerate restricted auras. Nil,false means unavailable, not "no buffs".
 local auraRetryAt=0
 function ForeverAssistAuraReadable(index)
@@ -52,7 +61,7 @@ function ForeverAssistReadPlayerAura(index)
 end
 function ForeverAssistCleanAura(a)
  if type(a)~="table" then return nil,false end
- if issecrettable and issecrettable(a) then return nil,false end
+ if not ForeverAssistReadableTable(a) then return nil,false end
  local clean={}
  for _,key in ipairs({'name','icon','applications','duration','expirationTime','sourceUnit','spellId','spellID','isHelpful','isHarmful','auraInstanceID'}) do
   local value=a[key]
@@ -143,9 +152,37 @@ function ForeverAssistRealmLabel(realm)
  if text:find('hardcore',1,true) then return 'Hardcore' end
  return realm
 end
--- First and second name together (e.g. "Tobin Stormhammer"), then the server type.
+-- The server name, from whichever API the client fills in (some return an empty string).
+function ForeverAssistGetRealm()
+ local function ok(v) return type(v)=='string' and (not issecretvalue or not issecretvalue(v)) and v:match('%S') and v:match('^%s*(.-)%s*$') or nil end
+ local found=GetRealmName and ok(GetRealmName())
+ if found then return found end
+ found=GetNormalizedRealmName and ok(GetNormalizedRealmName())
+ if found then return found end
+ if UnitFullName then local _,realm=UnitFullName('player');found=ok(realm);if found then return found end end
+ if GetServerName then found=ok(GetServerName());if found then return found end end
+ found=GetCVar and ok(GetCVar('realmName'))
+ return found or ''
+end
+function ForeverAssistRealmDebug()
+ local function show(label,v) print('|cffd2b077Trailbound realm:|r '..label..' = "'..tostring(v)..'"') end
+ show('GetRealmName',GetRealmName and GetRealmName());show('GetNormalizedRealmName',GetNormalizedRealmName and GetNormalizedRealmName())
+ if UnitFullName then local _,realm=UnitFullName('player');show('UnitFullName realm',realm) end
+ show('GetCVar realmName',GetCVar and GetCVar('realmName'));show('chosen',ForeverAssistGetRealm())
+end
+-- First and second name, then level and class, then the server, e.g. "Grunt Je Mai (60 Priest) - PvP".
 function ForeverAssistCharacterLabel(record,fullName)
  if type(record)~='table' then return '' end
  local name=fullName or record.mailName or record.name or '?'
- return name..' - '..ForeverAssistRealmLabel(record.realm)
+ local text=name
+ if record.level or record.className then
+  local token=record.class
+  local color=token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+  local classText=record.className or ''
+  if color and classText~='' then classText=string.format('|cff%02x%02x%02x%s|r',(color.r or 1)*255,(color.g or 1)*255,(color.b or 1)*255,classText) end
+  text=text..' |cffaaaaaa('..(record.level and (record.level..' ') or '')..'|r'..classText..'|cffaaaaaa)|r'
+ end
+ local realm=type(record.realm)=='string' and record.realm:match('%S') and ForeverAssistRealmLabel(record.realm) or ''
+ if realm~='' then text=text..' - '..realm end
+ return text
 end

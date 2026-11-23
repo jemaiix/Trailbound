@@ -1,5 +1,5 @@
 -- Read-only market observations and conservative, per-craft estimates.
-ForeverAssistEconomy={Version='1.8.98'}
+ForeverAssistEconomy={Version='1.9.5'}
 local E=ForeverAssistEconomy
 local account,settings,options
 local panels,hooks={},{}
@@ -16,6 +16,10 @@ function E.Observe(id,price,source)
 end
 function E.Price(id)
  if not account or not id then return end
+ if E.preferTSM and TSM_API then
+  local tsm=call(TSM_API.GetCustomPriceValue,'dbmarket','i:'..id)
+  if num(tsm)and tsm>0 then return tsm,'TSM market',nil end
+ end
  local source=settings().craftPriceSource or 'Auto'
  if source=='Auto'or source=='Auctionator'then
   local api=Auctionator and Auctionator.API and Auctionator.API.v1
@@ -284,6 +288,122 @@ function E.DecorateRows(host)
  local prefix=trainer and 'ClassTrainerSkill'or host==CraftFrame and 'Craft'or 'TradeSkillSkill'
  for i=1,30 do local row=_G[prefix..i];if row and row:IsShown()then annotate(row)end end
 end
+-- All crafts of the open profession, best profit first. TSM market values are used when TSM is loaded.
+local profitWindow
+local function recipeName(recipe)
+ if recipe.name and recipe.name~='' then return recipe.name end
+ return E.Item(recipe.itemID).name or ('Item '..tostring(recipe.itemID))
+end
+local function enumerateRecipes(host)
+ local list={}
+ local ui=C_TradeSkillUI
+ if host==ProfessionsFrame and ui and ui.GetAllRecipeIDs then
+  for _,id in ipairs(call(ui.GetAllRecipeIDs)or {})do
+   local info=call(ui.GetRecipeInfo,id)
+   if type(info)=='table'and info.learned then local r=E.Recipe(id);if r then list[#list+1]=r end end
+  end
+ elseif host==CraftFrame then
+  for i=1,(call(GetNumCrafts)or 0)do
+   local _,_,kind=call(GetCraftInfo,i)
+   if kind~='header'then local r=E.LegacyRecipe(i,true);if r then list[#list+1]=r end end
+  end
+ else
+  for i=1,(call(GetNumTradeSkills)or 0)do
+   local _,kind=call(GetTradeSkillInfo,i)
+   if kind and kind~='header'and kind~='subheader'then local r=E.LegacyRecipe(i,false);if r then list[#list+1]=r end end
+  end
+ end
+ return list
+end
+local function sortValue(row,key)
+ local v=row[key];return type(v)=='number'and v or nil
+end
+local function layoutProfit()
+ local w=profitWindow;local rows=w.data
+ local key=w.sortKey
+ table.sort(rows,function(a,b)
+  if key=='name'then return a.name<b.name end
+  local x,y=sortValue(a,key),sortValue(b,key)
+  if x==nil and y==nil then return a.name<b.name end
+  if x==nil then return false end
+  if y==nil then return true end
+  if x==y then return a.name<b.name end
+  return x>y
+ end)
+ for i,row in ipairs(rows)do
+  local line=w.lines[i]
+  if not line then
+   line=CreateFrame('Frame',nil,w.content);line:SetSize(560,20);line:EnableMouse(true)
+   line.rank=line:CreateFontString(nil,'OVERLAY','TrailboundSmall');line.rank:SetPoint('LEFT',0,0);line.rank:SetWidth(26);line.rank:SetJustifyH('RIGHT')
+   line.name=line:CreateFontString(nil,'OVERLAY','TrailboundSmall');line.name:SetPoint('LEFT',34,0);line.name:SetWidth(210);line.name:SetJustifyH('LEFT');line.name:SetWordWrap(false)
+   line.cost=line:CreateFontString(nil,'OVERLAY','TrailboundSmall');line.cost:SetPoint('LEFT',250,0);line.cost:SetWidth(100);line.cost:SetJustifyH('RIGHT')
+   line.vendor=line:CreateFontString(nil,'OVERLAY','TrailboundSmall');line.vendor:SetPoint('LEFT',356,0);line.vendor:SetWidth(100);line.vendor:SetJustifyH('RIGHT')
+   line.ah=line:CreateFontString(nil,'OVERLAY','TrailboundSmall');line.ah:SetPoint('LEFT',462,0);line.ah:SetWidth(100);line.ah:SetJustifyH('RIGHT')
+   line:SetScript('OnEnter',function(self)if self.details and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_RIGHT');for l in self.details:gmatch('[^\n]+')do GameTooltip:AddLine(l,1,1,1,true)end;GameTooltip:Show()end end)
+   line:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
+   w.lines[i]=line
+  end
+  line:ClearAllPoints();line:SetPoint('TOPLEFT',0,-(i-1)*20)
+  line.rank:SetText('|cff9d9d9d'..i..'|r');line.name:SetText(row.name)
+  line.cost:SetText(row.cost and ForeverAssistMoney(row.cost)or '|cffaaaaaa?|r')
+  line.vendor:SetText(money(row.vendorProfit));line.ah:SetText(money(row.profit))
+  line.details=row.details;line:Show()
+ end
+ for i=#rows+1,#w.lines do w.lines[i]:Hide()end
+ w.content:SetSize(570,math.max(1,#rows*20))
+ for k,b in pairs(w.headers)do b:SetText((k==key and '|cffffd100' or '|cffffffff')..b.baseText..'|r')end
+end
+function E.OpenAllCrafts(host)
+ if not account then return end
+ local w=profitWindow
+ if not w then
+  w=CreateFrame('Frame','TrailboundProfitWindow',UIParent,'BackdropTemplate')
+  w:SetSize(640,470);w:SetPoint('CENTER');w:SetFrameStrata('DIALOG');w:EnableMouse(true);w:SetMovable(true);w:SetClampedToScreen(true)
+  w:RegisterForDrag('LeftButton');w:SetScript('OnDragStart',w.StartMoving);w:SetScript('OnDragStop',w.StopMovingOrSizing)
+  w:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Tooltips/UI-Tooltip-Border',edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
+  w:SetBackdropColor(.10,.065,.035,.98);w:SetBackdropBorderColor(.6,.48,.31,1)
+  w.title=w:CreateFontString(nil,'OVERLAY');w.title:SetFont(STANDARD_TEXT_FONT,14,'OUTLINE');w.title:SetPoint('TOPLEFT',14,-12);w.title:SetTextColor(1,.82,0)
+  w.note=w:CreateFontString(nil,'OVERLAY','TrailboundSmall');w.note:SetPoint('TOPLEFT',14,-32);w.note:SetWidth(580);w.note:SetJustifyH('LEFT')
+  local close=CreateFrame('Button',nil,w,'UIPanelCloseButton');close:SetPoint('TOPRIGHT',2,2)
+  if UISpecialFrames then tinsert(UISpecialFrames,'TrailboundProfitWindow')end
+  w.headers={}
+  local function header(key,text,x,width)
+   local b=CreateFrame('Button',nil,w);b:SetPoint('TOPLEFT',x,-58);b:SetSize(width,18)
+   b.text=b:CreateFontString(nil,'OVERLAY','TrailboundSmall');b.text:SetAllPoints();b.baseText=text
+   b.SetText=function(self,t)self.text:SetText(t)end
+   b:SetScript('OnClick',function()w.sortKey=key;layoutProfit()end)
+   w.headers[key]=b
+   return b
+  end
+  header('name','Craft',46,210):SetText('Craft')
+  header('cost','Cost',262,100);header('vendorProfit','Vendor profit',368,100);header('profit','AH profit (net)',474,100)
+  w.headers.name.text:SetJustifyH('LEFT');for _,k in ipairs({'cost','vendorProfit','profit'})do w.headers[k].text:SetJustifyH('RIGHT')end
+  w.scroll=CreateFrame('ScrollFrame','TrailboundProfitScroll',w,'UIPanelScrollFrameTemplate');w.scroll:SetPoint('TOPLEFT',14,-80);w.scroll:SetPoint('BOTTOMRIGHT',-34,14)
+  w.content=CreateFrame('Frame',nil,w.scroll);w.content:SetSize(570,10);w.scroll:SetScrollChild(w.content)
+  w.lines={};w.sortKey='best'
+  profitWindow=w
+ end
+ w.host=host
+ E.preferTSM=true
+ local rows={}
+ local ok,err=pcall(function()
+  for _,recipe in ipairs(enumerateRecipes(host))do
+   local result=E.Estimate(recipe)
+   if result then
+    local best=bestProfit(result)
+    rows[#rows+1]={name=recipeName(recipe),cost=result.cost,vendorProfit=result.vendorProfit,profit=result.profit,best=best,details=summary(result)}
+   end
+  end
+ end)
+ E.preferTSM=false
+ w.data=rows;w.sortKey='best'
+ local profession=host and host.GetTitle and call(host.GetTitle,host)
+ w.title:SetText('All crafts by profit'..(type(profession)=='string'and safe(profession)and (' - '..profession)or ''))
+ local tsm=TSM_API and 'TSM market prices are used (other sources only where TSM has none).' or 'TradeSkillMaster was not detected - using your chosen price source (Auctionator or remembered prices).'
+ w.note:SetText(tsm..'  Click a column to sort. "Unknown" means a reagent or the item has no known price.'..(ok and '' or '\n|cffff6060Could not read every recipe: '..tostring(err)..'|r'))
+ layoutProfit()
+ w:Show()
+end
 function E.Refresh()
  if not account then return end
  for _,host in ipairs({ProfessionsFrame or false,TradeSkillFrame or false,CraftFrame or false,ClassTrainerFrame or false})do
@@ -297,8 +417,9 @@ function E.Refresh()
     else p:SetSize(340,132);p:SetPoint('TOPLEFT',host,'TOPRIGHT',8,-5)end
     p:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Buttons/WHITE8X8',edgeSize=1});p:SetBackdropColor(.10,.065,.035,.97);p:SetBackdropBorderColor(.6,.48,.31,1)
     p.text=p:CreateFontString(nil,'OVERLAY','TrailboundSmall');p.text:SetPoint('TOPLEFT',9,-8);p.text:SetWidth(p:GetWidth()-18);p.text:SetJustifyH('LEFT');p.text:SetFont(STANDARD_TEXT_FONT,10,'OUTLINE');p.text:SetMaxLines(embedded and 4 or 5);p.text:SetHeight(embedded and 62 or 84)
-    p.search=CreateFrame('Button',nil,p,'UIPanelButtonTemplate');p.search:SetSize((p:GetWidth()-28)/2,20);p.search:SetPoint('BOTTOMLEFT',9,7);p.search:SetText('Search mats');p.search:SetScript('OnClick',function()E.SearchMats(p.recipe)end);ForeverAssistStyleButton(p.search)
-    local b=CreateFrame('Button',nil,p,'UIPanelButtonTemplate');b:SetSize((p:GetWidth()-28)/2,20);b:SetPoint('BOTTOMRIGHT',-9,7);b:SetText('Settings');b:SetScript('OnClick',E.Options);ForeverAssistStyleButton(b)
+    p.search=CreateFrame('Button',nil,p,'UIPanelButtonTemplate');p.search:SetSize((p:GetWidth()-36)/3,20);p.search:SetPoint('BOTTOMLEFT',9,7);p.search:SetText('Search mats');p.search:SetScript('OnClick',function()E.SearchMats(p.recipe)end);ForeverAssistStyleButton(p.search)
+    local all=CreateFrame('Button',nil,p,'UIPanelButtonTemplate');all:SetSize((p:GetWidth()-36)/3,20);all:SetPoint('BOTTOM',p,'BOTTOM',0,7);all:SetText('All crafts');all:SetScript('OnClick',function()E.OpenAllCrafts(host)end);ForeverAssistStyleButton(all);all:SetShown(host~=ClassTrainerFrame)
+    local b=CreateFrame('Button',nil,p,'UIPanelButtonTemplate');b:SetSize((p:GetWidth()-36)/3,20);b:SetPoint('BOTTOMRIGHT',-9,7);b:SetText('Settings');b:SetScript('OnClick',E.Options);ForeverAssistStyleButton(b)
     p:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_RIGHT');for line in (self.details or ''):gmatch('[^\n]+')do GameTooltip:AddLine(line,1,1,1,true)end;GameTooltip:Show()end end)
     p:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
     panels[host]=p

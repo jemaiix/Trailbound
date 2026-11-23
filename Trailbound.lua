@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.8.98
+-- Trailbound 1.9.5
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -587,6 +587,7 @@ local function GetReminderIcon(i)
         b:EnableMouse(true);b:RegisterForDrag("LeftButton")
         b:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_TOP");GameTooltip:AddLine(self.fullLabel or "Reminder",1,1,1);if self.castSpell then GameTooltip:AddLine(self.clickText or "Click to cast on yourself",.45,1,.65) end;GameTooltip:Show() end)
         b:SetScript("OnLeave",function() GameTooltip:Hide() end)
+        b:HookScript("OnClick",function(self,button) if button=="RightButton" and self.poisonPicker and not unlocked then ForeverAssistReminders.PoisonPicker(self) end end)
         b:SetScript("OnDragStart",function() if unlocked and not InCombatLockdown() then rem:StartMoving() end end)
         b:SetScript("OnDragStop",function() local fn=rem:GetScript("OnDragStop");if fn then fn(rem) end end)
         rem.icons[i] = b
@@ -620,8 +621,15 @@ local function LayoutReminder(list)
         b.tex:SetTexture(g.icon or 134400)
         b.label:SetFont(STANDARD_TEXT_FONT, tsize, "OUTLINE")
         b.label:SetWidth(spacing-4);b.label:SetHeight(tsize*2+4);b.label:SetJustifyH("CENTER");b.label:SetWordWrap(true)
-        b.fullLabel=g.label
+        if not b:IsShown() or b.groupLabel~=g.label then b.shownAt=GetTime();b.groupLabel=g.label end
+        b.fullLabel=g.label;b.names=g.names or (g.spell and {g.spell}) or nil
+        b:SetAlpha(1)
         b.castSpell=not unlocked and (g.spell or g.macro) or nil;b.clickText=g.clickText
+        b.poisonPicker=g.poisonPicker
+        if not InCombatLockdown() then
+            -- Right-click opens the poison picker, so it must not run the left-click macro.
+            b:SetAttribute("type2",g.poisonPicker and "macro" or nil);b:SetAttribute("macrotext2",g.poisonPicker and "" or nil)
+        end
         if not unlocked and g.macro then
             b:SetAttribute("type","macro");b:SetAttribute("macrotext",g.macro);b:SetAttribute("spell",nil)
         else
@@ -637,8 +645,29 @@ local function LayoutReminder(list)
     rem:SetShown(#list > 0)
 end
 
+-- Spells the player cast, by name, so a reminder can clear in combat when its spell is used.
+local castSeen = {}
+-- In combat the reminder buttons cannot be changed (they are secure), so a reminder whose spell was just
+-- cast, or whose buff is now visible, is faded out instead; the next update out of combat re-lays everything out.
+local function CombatReminderUpdate()
+    if not rem or unlocked then return end
+    local have
+    local ok, names = pcall(PlayerBuffNames)
+    if ok then have = names end
+    for _, b in ipairs(rem.icons) do
+        if b:IsShown() and b.names then
+            local covered = false
+            for _, n in ipairs(b.names) do
+                if (have and have[n]) or (castSeen[n] and castSeen[n] > (b.shownAt or 0)) then covered = true break end
+            end
+            b:SetAlpha(covered and 0 or 1)
+        end
+    end
+end
+
 local function UpdateReminder()
-    if not rem or InCombatLockdown() then return end
+    if not rem then return end
+    if InCombatLockdown() then CombatReminderUpdate() return end
     local list = {}
     local have,auras
     if not unlocked then
@@ -1366,7 +1395,13 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     elseif event == "MERCHANT_SHOW" then
         SellJunk()
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if arg1 == "player" and DB.fsr and CostsMana(arg3) then StartFSR() end
+        if arg1 == "player" then
+            if DB.fsr and CostsMana(arg3) then StartFSR() end
+            if type(arg3) == "number" and (not issecretvalue or not issecretvalue(arg3)) then
+                local castName = SpellNameIcon(arg3)
+                if castName then castSeen[castName] = GetTime() end
+            end
+        end
     elseif event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then
         if event == "TRAINER_SHOW" and SetTrainerServiceTypeFilter then
             pcall(SetTrainerServiceTypeFilter, "available", 1)
@@ -1421,7 +1456,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.8.98 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.9.5 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()
@@ -1434,8 +1469,9 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
     elseif msg == "vendor" then Toggle("gossipVendor", "Auto vendor")
     elseif msg == "trainer" then Toggle("gossipTrainer", "Auto trainer")
     elseif msg == "taxi" then Toggle("gossipTaxi", "Auto flight master")
+    elseif msg == "poisons" then ForeverAssistReminders.PoisonPicker()
     elseif msg == "ilvl" then ForeverAssistCharacter.Debug()
-    elseif msg == "names" then ForeverAssistNameDebug()
+    elseif msg == "names" then ForeverAssistNameDebug();ForeverAssistRealmDebug()
     elseif msg == "release" then Toggle("bgRelease", "Auto-release in battlegrounds")
     elseif msg == "pvptab" then Toggle("pvpTabPlayers", "Enemy-player Tab in PvP", function() ForeverAssistPvP.Update() end)
     elseif msg == "fish" then Toggle("fishSpace", "Space-bar fishing");ForeverAssistFishing.Apply()

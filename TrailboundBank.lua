@@ -1,5 +1,5 @@
 -- Read-only bank snapshots. The real BankFrame and its actions are untouched.
-ForeverAssistBank={Version='1.8.98'}
+ForeverAssistBank={Version='1.9.5'}
 local B=ForeverAssistBank
 local account,character,bankOpen=false,nil,false
 local viewer,selectedKey,selectedTab
@@ -87,9 +87,16 @@ function B.Record()
  B.Refresh();return true
 end
 local function label(r)
- local full=r.mailName
- if not full then for _,c in pairs(account.characters or {}) do if c.name==r.name and c.realm==r.realm and c.mailName then full=c.mailName;break end end end
- return ForeverAssistCharacterLabel(r,full)
+ local merged={}
+ for k,v in pairs(r) do if k~='containers' and k~='order' then merged[k]=v end end
+ for _,c in pairs(account.characters or {}) do
+  if c.name==r.name and (c.realm==r.realm or not r.realm or r.realm=='') then
+   for _,field in ipairs({'mailName','level','class','className'}) do if merged[field]==nil then merged[field]=c[field] end end
+   if not merged.realm or merged.realm=='' then merged.realm=c.realm end
+   break
+  end
+ end
+ return ForeverAssistCharacterLabel(merged,merged.mailName)
 end
 function B.CharacterKeys()
  local result,seen={},{}
@@ -97,6 +104,11 @@ function B.CharacterKeys()
  for id in pairs(account.bankCharacters) do if not seen[id] then result[#result+1]=id end end
  table.sort(result,function(a,b)return label(account.bankCharacters[a] or account.characters[a])<label(account.bankCharacters[b] or account.characters[b]) end)
  return result
+end
+local function freeOf(container)
+ local used=0
+ for _ in pairs(container.items or {}) do used=used+1 end
+ return math.max(0,(container.size or 0)-used),container.size or 0
 end
 local function font(parent,text,x,y,width)
  local f=parent:CreateFontString(nil,'OVERLAY','TrailboundSmall');f:SetPoint('TOPLEFT',x,y);f:SetText(text);if width then f:SetWidth(width);f:SetJustifyH('LEFT') end;return f
@@ -114,42 +126,73 @@ function B.Refresh()
  local characterLabel=who and label(who) or ((ForeverAssistFullMailName and ForeverAssistFullMailName('player') or UnitName('player'))..' - '..ForeverAssistRealmLabel(GetRealmName()))
  viewer.character:SetText(characterLabel)
  if viewer.selector and viewer.selector.SetDefaultText then viewer.selector:SetDefaultText(characterLabel) end
- for _,b in ipairs(tabs) do b:Hide() end;for _,b in ipairs(slots) do b:Hide() end
+ for _,b in ipairs(tabs) do b:Hide() end;for _,b in ipairs(slots) do b:Hide() end;if viewer.grid then viewer.grid:Hide() end;if viewer.free then viewer.free:SetText('') end
  if not r then viewer.tabName:SetText('Bank not recorded');viewer.notice:SetText('Visit the bank on this character once with Trailbound enabled.\nChoose another character above to browse its saved bank.');return end
- if not selectedTab or not r.containers[selectedTab] then selectedTab=r.order[1] end
- for i,id in ipairs(r.order) do
+ if selectedTab~='all' and (not selectedTab or not r.containers[selectedTab]) then selectedTab='all' end
+local totalFree,totalSlots=0,0
+ for _,id in ipairs(r.order) do local free,total=freeOf(r.containers[id]);totalFree=totalFree+free;totalSlots=totalSlots+total end
+ local tabIds={'all'};for _,id in ipairs(r.order) do tabIds[#tabIds+1]=id end
+ for i,id in ipairs(tabIds) do
   local b=tabs[i]
   if not b then
    b=CreateFrame('Button',nil,viewer);b:SetSize(32,32);b:SetPoint('TOPLEFT',viewer,'TOPRIGHT',3,-48-(i-1)*40)
    b.bg=b:CreateTexture(nil,'BACKGROUND');b.bg:SetAllPoints();b.bg:SetTexture('Interface/Buttons/UI-EmptySlot')
    b.icon=b:CreateTexture(nil,'ARTWORK');b.icon:SetPoint('TOPLEFT',3,-3);b.icon:SetPoint('BOTTOMRIGHT',-3,3)
+   b.free=b:CreateFontString(nil,'OVERLAY','NumberFontNormalSmall');b.free:SetPoint('BOTTOMRIGHT',-1,2)
    b:SetScript('OnClick',function(self) selectedTab=self.id;B.Refresh() end)
-   b:SetScript('OnEnter',function(self) GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:AddLine(self.tabName);GameTooltip:Show() end);b:SetScript('OnLeave',function()GameTooltip:Hide()end);tabs[i]=b
+   b:SetScript('OnEnter',function(self) GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:AddLine(self.tabName);if self.freeSlots then GameTooltip:AddLine(self.freeSlots..' free of '..self.totalSlots..' slots',.5,1,.5) end;GameTooltip:Show() end);b:SetScript('OnLeave',function()GameTooltip:Hide()end);tabs[i]=b
   end
-  b.id=id;b.tabName=r.containers[id].name;b.icon:SetTexture(r.containers[id].icon);b.icon:SetVertexColor(id==selectedTab and 1 or .55,id==selectedTab and 1 or .55,id==selectedTab and 1 or .55);b:Show()
+  b.id=id;b.tabName=id=='all' and 'All tabs' or r.containers[id].name;do local free,total;if id=='all' then free,total=totalFree,totalSlots else free,total=freeOf(r.containers[id]) end;b.freeSlots,b.totalSlots=free,total;b.free:SetText(free);if free>0 then b.free:SetTextColor(.5,1,.5) else b.free:SetTextColor(1,.4,.4) end end;b.icon:SetTexture(id=='all' and 133639 or r.containers[id].icon);b.icon:SetVertexColor(id==selectedTab and 1 or .55,id==selectedTab and 1 or .55,id==selectedTab and 1 or .55);b:Show()
  end
- local bag=r.containers[selectedTab];viewer.tabName:SetText(bag and bag.name or 'Bank')
+ if not viewer.free then viewer.free=viewer:CreateFontString(nil,'OVERLAY','TrailboundSmall');viewer.free:SetPoint('TOPRIGHT',viewer,'TOPRIGHT',-26,-80);viewer.free:SetJustifyH('RIGHT') end
+ local bag=r.containers[selectedTab]
+ if selectedTab=='all' then
+  -- Every tab in one grid, in tab order.
+  bag={name='All tabs',size=0,items={},sources={}}
+  for _,id in ipairs(r.order) do
+   local part=r.containers[id]
+   for s=1,part.size do bag.size=bag.size+1;bag.items[bag.size]=part.items[s];bag.sources[bag.size]=part.name..' • slot '..s end
+  end
+ end
+ viewer.tabName:SetText(bag and bag.name or 'Bank')
+ do
+  viewer.free:SetText('Free slots: |cff80ff80'..totalFree..'|r / '..totalSlots)
+ end
  if bag then
   -- Forever's native bank fills seven rows down each column, grouping columns in pairs.
   local rows=7
   local columns=math.ceil(bag.size/rows);local pitch=40
   local width=26+columns*pitch+math.floor((columns-1)/2)*11+42
   viewer:SetWidth(math.max(738,width));if viewer.selector then viewer.selector:SetWidth(viewer:GetWidth()-110) end;viewer.notice:SetWidth(viewer:GetWidth()-52)
+  if not viewer.grid then
+   viewer.grid=CreateFrame('Frame',nil,viewer,'BackdropTemplate');viewer.grid:SetFrameLevel(viewer:GetFrameLevel()+1)
+   viewer.grid:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Tooltips/UI-Tooltip-Border',edgeSize=10,insets={left=3,right=3,top=3,bottom=3}})
+   viewer.grid:SetBackdropColor(0,0,0,.35);viewer.grid:SetBackdropBorderColor(.5,.4,.28,.9)
+  end
+  viewer.grid:ClearAllPoints();viewer.grid:SetPoint('TOPLEFT',viewer,'TOPLEFT',16,-98);viewer.grid:SetSize(width-32,7*42+14);viewer.grid:Show()
   for slot=1,bag.size do
    local b=slots[slot]
    if not b then
-    b=CreateFrame('Button',nil,viewer);b:SetSize(32,32)
-    b.bg=b:CreateTexture(nil,'BACKGROUND');b.bg:SetAllPoints();if b.bg.SetAtlas then b.bg:SetAtlas('bags-item-slot64') else b.bg:SetTexture('Interface/Buttons/UI-EmptySlot') end
+    b=CreateFrame('Button',nil,viewer,'BackdropTemplate');b:SetSize(36,36);b:SetFrameLevel(viewer:GetFrameLevel()+3)
+    -- A plain dark slot with a thin border, so empty (free) slots are clearly visible, like the real bank.
+    b:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Buttons/WHITE8X8',edgeSize=1});b:SetBackdropColor(.04,.035,.03,.88);b:SetBackdropBorderColor(.30,.24,.16,1)
     b.icon=b:CreateTexture(nil,'ARTWORK');b.icon:SetPoint('TOPLEFT',2,-2);b.icon:SetPoint('BOTTOMRIGHT',-2,2)
+    -- Free slots get a visible empty-slot icon where an item icon would be.
+    b.empty=b:CreateTexture(nil,'ARTWORK');b.empty:SetPoint('TOPLEFT',3,-3);b.empty:SetPoint('BOTTOMRIGHT',-3,3);b.empty:SetTexture('Interface/PaperDoll/UI-Backpack-EmptySlot');b.empty:SetAlpha(.6)
     b.count=b:CreateFontString(nil,'OVERLAY','NumberFontNormal');b.count:SetPoint('BOTTOMRIGHT',-1,1)
     b:SetScript('OnEnter',function(self)
      GameTooltip:SetOwner(self,'ANCHOR_RIGHT');if self.item then if self.item.link then GameTooltip:SetHyperlink(self.item.link) else GameTooltip:SetItemByID(self.item.id) end else GameTooltip:AddLine('Empty slot') end
-     GameTooltip:AddLine('Saved bank • Slot '..self.slot,.7,.7,.7);GameTooltip:Show()
+     GameTooltip:AddLine('Saved bank • '..(self.source or ('Slot '..self.slot)),.7,.7,.7);GameTooltip:Show()
     end);b:SetScript('OnLeave',function()GameTooltip:Hide()end);slots[slot]=b
    end
    local col=math.floor((slot-1)/rows);local row=(slot-1)%rows
    b:ClearAllPoints();b:SetPoint('TOPLEFT',26+col*pitch+math.floor(col/2)*11,-104-row*42)
-   local item=bag.items[slot];b.item=item;b.slot=slot;b.icon:SetTexture(item and (item.icon or 134400));b.icon:SetShown(item~=nil);b.count:SetText(item and item.count>1 and item.count or '');b:Show()
+   local item=bag.items[slot];b.item=item;b.slot=slot;b.source=bag.sources and bag.sources[slot]
+   do
+    local q=item and item.quality;local color=q and q>=2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[q]
+    if color then b:SetBackdropBorderColor(color.r,color.g,color.b,1) else b:SetBackdropBorderColor(.30,.24,.16,1) end
+   end
+   b.icon:SetTexture(item and (item.icon or 134400));b.icon:SetShown(item~=nil);b.empty:SetShown(item==nil);if item then b:SetBackdropColor(.04,.035,.03,.88) else b:SetBackdropColor(.12,.10,.08,.9) end;b.count:SetText(item and item.count>1 and item.count or '');b:Show()
   end
  end
  local when=date('%Y-%m-%d %H:%M',r.updatedAt)

@@ -1,5 +1,5 @@
 -- Short-lived important player auras, including external casters and consumables.
-ForeverAssistBuffTracker={Version="1.8.98"}
+ForeverAssistBuffTracker={Version="1.9.5"}
 local T=ForeverAssistBuffTracker
 function T.Suspend()
  T.suspended=true;T.unlocked=false
@@ -284,18 +284,18 @@ function T.Initialize(get)
 end
 function T.ApplySettings() if getSettings then config();create();anchor();T.Refresh() end end
 function T.RemovedAuras(info)
- if type(info)~='table' or issecrettable and issecrettable(info) then return end
+ if not ForeverAssistReadableTable(info) then return end
  local removed=info.removedAuraInstanceIDs
- if type(removed)~='table' or issecrettable and issecrettable(removed) then return end
+ if not ForeverAssistReadableTable(removed) then return end
  for _,id in ipairs(removed) do if safe(id) then
   for i=#active,1,-1 do if active[i].auraInstanceID and active[i].auraInstanceID==id then castEstimates[active[i].spellId]=nil;table.remove(active,i) end end
  end end
 end
 function T.AuraUpdate(info)
  T.RemovedAuras(info)
- if type(info)~='table' or issecrettable and issecrettable(info) then return end
+ if not ForeverAssistReadableTable(info) then return end
  local added=info.addedAuras
- if type(added)~='table' or issecrettable and issecrettable(added) then return end
+ if not ForeverAssistReadableTable(added) then return end
  for _,data in ipairs(added) do
   local a=ForeverAssistCleanAura and ForeverAssistCleanAura(data)
   if a and T.ShouldTrack(a) then
@@ -314,8 +314,8 @@ events:SetScript('OnEvent',function(_,event,unit,arg2,arg3,arg4)
  if event=='UNIT_SPELLCAST_SENT' then T.CastSent(unit,arg2,arg3,arg4)
  elseif event=='UNIT_SPELLCAST_SUCCEEDED' then T.CastSucceeded(unit,arg3,arg2)
  elseif getSettings and (event~='UNIT_AURA' or unit=='player') then
-  if event=='UNIT_AURA' then T.AuraUpdate(arg2) end
-  T.Refresh()
+  if event=='UNIT_AURA' then pcall(T.AuraUpdate,arg2) end
+  pcall(T.Refresh)
  end
 end)
 events:SetScript('OnUpdate',function(_,elapsed) if not getSettings then return end;accessClock=accessClock+elapsed;if accessClock>=1 then accessClock=0;if T.auraUnavailable or not ForeverAssistAuraReadable() then T.Refresh() end end;clock=clock+elapsed;if clock>=.1 then clock=0;T.Update() end end)

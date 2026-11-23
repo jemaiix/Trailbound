@@ -1,5 +1,5 @@
 -- Additional reminder rules. All aura fields come through the restricted-aura guard.
-ForeverAssistReminders={Version='1.8.98'}
+ForeverAssistReminders={Version='1.9.5'}
 local R=ForeverAssistReminders
 local function safe(v) return not issecretvalue or not issecretvalue(v) end
 local abilityCache,selectedCache={},{}
@@ -128,6 +128,90 @@ local function bestPoison()
  end
  return best
 end
+-- Every poison in the bags (one row per kind), for the picker.
+local function poisonList()
+ local read=C_Container and C_Container.GetContainerItemInfo
+ local rows,byID={}, {}
+ if not read then return rows end
+ for bag=0,(NUM_BAG_SLOTS or 4) do
+  for slot=1,(C_Container.GetContainerNumSlots(bag) or 0) do
+   local info=read(bag,slot)
+   if type(info)=='table' and safe(info.hyperlink) and safe(info.itemID) and type(info.hyperlink)=='string' then
+    local name=info.hyperlink:match('%[(.-)%]') or ''
+    local lower=name:lower()
+    local isPoison=lower:find('poison',1,true)~=nil
+    if isPoison then
+     local instant=C_Item and C_Item.GetItemInfoInstant
+     if instant then local _,_,_,_,_,classID=instant(info.itemID);if classID and classID~=0 then isPoison=false end end
+    end
+    if isPoison then
+     local row=byID[info.itemID]
+     if not row then row={itemID=info.itemID,name=name,icon=info.iconFileID,count=0};byID[info.itemID]=row;rows[#rows+1]=row end
+     row.count=row.count+(info.stackCount or 1)
+    end
+   end
+  end
+ end
+ table.sort(rows,function(a,b)return a.name<b.name end)
+ return rows
+end
+local picker
+local function buildPicker()
+ picker=CreateFrame('Frame','TrailboundPoisonPicker',UIParent,'BackdropTemplate')
+ picker:SetFrameStrata('DIALOG');picker:SetClampedToScreen(true);picker:EnableMouse(true)
+ picker:SetBackdrop({bgFile='Interface/Buttons/WHITE8X8',edgeFile='Interface/Tooltips/UI-Tooltip-Border',edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
+ picker:SetBackdropColor(.10,.065,.035,.97);picker:SetBackdropBorderColor(.6,.48,.31,1)
+ picker.title=picker:CreateFontString(nil,'OVERLAY');picker.title:SetFont(STANDARD_TEXT_FONT,13,'OUTLINE');picker.title:SetPoint('TOPLEFT',12,-10);picker.title:SetTextColor(1,.82,0);picker.title:SetText('Choose a poison')
+ picker.close=CreateFrame('Button',nil,picker,'UIPanelCloseButton');picker.close:SetPoint('TOPRIGHT',2,2)
+ picker.empty=picker:CreateFontString(nil,'OVERLAY');picker.empty:SetFont(STANDARD_TEXT_FONT,12,'OUTLINE');picker.empty:SetPoint('TOPLEFT',12,-36);picker.empty:SetText('No poisons in your bags.')
+ picker.rows={}
+ picker:SetScript('OnHide',function() end)
+ picker:RegisterEvent('PLAYER_REGEN_DISABLED');picker:SetScript('OnEvent',function(self) self:Hide() end)
+ if UISpecialFrames then tinsert(UISpecialFrames,'TrailboundPoisonPicker') end
+ picker:Hide()
+end
+local function applyButton(parent,label,slot)
+ local b=CreateFrame('Button',nil,parent,'SecureActionButtonTemplate,UIPanelButtonTemplate')
+ b:SetSize(74,22);b:SetText(label);b:RegisterForClicks('AnyUp','AnyDown');b:SetAttribute('useOnKeyDown',false)
+ b:SetAttribute('type','macro')
+ b.slot=slot
+ b:HookScript('PostClick',function() if picker then picker:Hide() end end)
+ if ForeverAssistStyleButton then ForeverAssistStyleButton(b) end
+ return b
+end
+function R.PoisonPicker(anchor)
+ if InCombatLockdown and InCombatLockdown() then return end
+ local _,class=UnitClass('player');if class~='ROGUE' then return end
+ if not picker then buildPicker() end
+ if picker:IsShown() then picker:Hide();return end
+ local list=poisonList()
+ local hasOff=weaponIn(17)
+ picker.empty:SetShown(#list==0)
+ for i,row in ipairs(list) do
+  local line=picker.rows[i]
+  if not line then
+   line=CreateFrame('Frame',nil,picker)
+   line:SetSize(330,28)
+   line.icon=line:CreateTexture(nil,'ARTWORK');line.icon:SetSize(24,24);line.icon:SetPoint('LEFT',0,0);line.icon:SetTexCoord(.07,.93,.07,.93)
+   line.text=line:CreateFontString(nil,'OVERLAY');line.text:SetFont(STANDARD_TEXT_FONT,12,'OUTLINE');line.text:SetPoint('LEFT',line.icon,'RIGHT',6,0);line.text:SetWidth(150);line.text:SetJustifyH('LEFT');line.text:SetWordWrap(false)
+   line.main=applyButton(line,'Main hand',16);line.main:SetPoint('RIGHT',line,'RIGHT',-80,0)
+   line.off=applyButton(line,'Off hand',17);line.off:SetPoint('RIGHT',line,'RIGHT',0,0)
+   picker.rows[i]=line
+  end
+  line:ClearAllPoints();line:SetPoint('TOPLEFT',12,-34-(i-1)*30)
+  line.icon:SetTexture(row.icon or 134400)
+  line.text:SetText(row.name..' |cffaaaaaa x'..row.count..'|r')
+  line.main:SetAttribute('macrotext','/use item:'..row.itemID..'\n/use 16')
+  line.off:SetAttribute('macrotext','/use item:'..row.itemID..'\n/use 17')
+  line.main:SetEnabled(weaponIn(16));line.off:SetEnabled(hasOff);line.off:SetShown(hasOff)
+  line:Show()
+ end
+ for i=#list+1,#picker.rows do picker.rows[i]:Hide() end
+ picker:SetSize(354,math.max(70,44+#list*30))
+ picker:ClearAllPoints()
+ if anchor then picker:SetPoint('BOTTOM',anchor,'TOP',0,10) else picker:SetPoint('CENTER',UIParent,'CENTER',0,120) end
+ picker:Show()
+end
 function R.PoisonReminder()
  local _,class=UnitClass('player');if class~='ROGUE' then return end
  if not GetWeaponEnchantInfo then return end
@@ -139,7 +223,7 @@ function R.PoisonReminder()
  local poison=bestPoison();if not poison then return end
  local name=poison.hyperlink:match('%[(.-)%]') or 'Poison'
  return {label='Apply '..name,shortLabel='Poison',icon=poison.iconFileID,macro='/use item:'..poison.itemID..'\n/use '..slot,
-  clickText=slot==16 and 'Click to apply to your main hand' or 'Click to apply to your off hand'}
+  clickText=(slot==16 and 'Click: apply to your main hand' or 'Click: apply to your off hand')..'  |  Right-click: choose another poison',poisonPicker=true}
 end
  -- Hunter ammo: remind when fewer than 200 of the ammo the ranged weapon uses are left (equipped + bags).
 -- Guns use bullets, bows and crossbows use arrows. The kind is read from the weapon's class and from its

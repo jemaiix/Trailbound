@@ -1,5 +1,5 @@
 -- Live minimap-tooltip observations only; never enumerate hidden world objects.
-ForeverAssistGathering={Version='1.8.98'}
+ForeverAssistGathering={Version='1.9.5'}
 local G=ForeverAssistGathering
 local settings,character,options
 local icons,glows={},{}
@@ -30,7 +30,7 @@ local aliases={}
 for _,row in ipairs(rows)do aliases[row[1]]=row end
 local function safe(v)return not issecretvalue or not issecretvalue(v)end
 -- canaccesstable: tables the client marks as off-limits to tainted code (e.g. nameplates in battlegrounds).
-local function publicTable(v)return safe(v)and type(v)=='table'and not (issecrettable and issecrettable(v))and (not canaccesstable or canaccesstable(v))end
+local function publicTable(v)return ForeverAssistReadableTable(v)end
 local function combat()return InCombatLockdown and InCombatLockdown()end
 local function number(v)return safe(v)and type(v)=='number'end
 local function call(fn,...)
@@ -264,7 +264,6 @@ function G.ApplySettings()
  G.Present()
 end
 function G.Sparkles()
- if IsInInstance and IsInInstance() then return end
  if not settings or combat()or settings().gatherSparkles==false or not C_NamePlate or not C_NamePlate.GetNamePlates or not UnitIsGameObject then hideGlows();return end
  local seen={}
  local plates=C_NamePlate.GetNamePlates();if not publicTable(plates)then hideGlows();return end
@@ -315,11 +314,7 @@ end
 local frame=CreateFrame('Frame')
 for _,event in ipairs({'PLAYER_REGEN_DISABLED','PLAYER_REGEN_ENABLED','PLAYER_ENTERING_WORLD','SKILL_LINES_CHANGED','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','PLAYER_SOFT_INTERACT_CHANGED'})do pcall(frame.RegisterEvent,frame,event)end
 frame:SetScript('OnEvent',function(_,event)
- if event=='PLAYER_REGEN_DISABLED'then hideIcons();hideGlows();index=1;hits={}
- elseif IsInInstance and IsInInstance() then
-  -- Battlegrounds and arenas restrict nameplate data (and fire nameplate events constantly): do nothing there.
-  if event~='NAME_PLATE_UNIT_ADDED' and event~='NAME_PLATE_UNIT_REMOVED' then pcall(hideIcons);pcall(hideGlows) end
- else pcall(G.ApplySettings);pcall(G.Sparkles) end
+ if event=='PLAYER_REGEN_DISABLED'then hideIcons();hideGlows();index=1;hits={}else G.ApplySettings();G.Sparkles()end
 end)
 local scanElapsed,glowElapsed=0,0
 local failures,pausedUntil=0,0

@@ -1,4 +1,4 @@
-ForeverAssistChat={Version='1.8.98'}
+ForeverAssistChat={Version='1.9.5'}
 local C=ForeverAssistChat
 local settings,options,copyWindow,copyBox
 local identities,wrapped={},{ }
@@ -11,8 +11,7 @@ function C.Remember(author,guid)
  if type(class)=='string' and type(race)=='string' then identities[author]={class=class,race=race,sex=sex} end
 end
 function C.Restricted()
- local ok,_,kind=pcall(IsInInstance)
- return ok and (kind=='pvp' or kind=='arena')
+ return false -- chat hooks stay active everywhere (the battleground chat workaround was removed)
 end
 local function hex(s)return (s:gsub('.',function(c)return ('%02x'):format(c:byte())end))end
 local function unhex(s)if #s%2~=0 or s:find('[^%x]')then return end;return (s:gsub('%x%x',function(v)return string.char(tonumber(v,16))end))end

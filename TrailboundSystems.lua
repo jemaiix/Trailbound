@@ -1,5 +1,5 @@
 -- Gathering, account inventory, separated training, professions and camera.
-ForeverAssistSystems = {Version="1.8.98"}
+ForeverAssistSystems = {Version="1.9.5"}
 local S = ForeverAssistSystems
 local account, character, getSettings, currentKey
 local moneyReadyAt=0
@@ -252,7 +252,8 @@ function S.RecordMoney(force)
     -- Character loading can briefly report zero before the real balance arrives.
     if money==0 and saved>0 and (GetTime()<moneyReadyAt or not force) then return end
     local changed=saved~=money or not ledger
-    record.name,record.realm=name,GetRealmName and GetRealmName() or 'Realm'
+    record.name,record.realm=name,ForeverAssistGetRealm()
+    do local className,token=UnitClass('player');record.className,record.class,record.level=className,token,UnitLevel('player') end
     record.mailName=ForeverAssistFullMailName('player') or record.mailName
     record.money=money;record.moneyUpdatedAt=changed and time() or ledger.updatedAt
     account.characters[key]=record

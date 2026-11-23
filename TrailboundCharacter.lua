@@ -1,7 +1,7 @@
 -- Character window (C): item level on every equipped item, your average equipped item level,
 -- and the enchant on each item (or a red "No enchant" for slots that can be enchanted).
 -- Everything is drawn on the existing character frame; there is no separate window.
-ForeverAssistCharacter={Version='1.8.98'}
+ForeverAssistCharacter={Version='1.9.5'}
 local C=ForeverAssistCharacter
 local function cfg() return ForeverAssistPlay and ForeverAssistPlay.Settings and ForeverAssistPlay.Settings() or {} end
 local function safe(v) return not issecretvalue or not issecretvalue(v) end

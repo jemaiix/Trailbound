@@ -193,3 +193,26 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 
 ## 1.8.98
 - Character window: average item level moved next to "Level 60 Priest" in a frame above everything else; weapon-slot enchant text sits under the weapon slots instead of overlapping. `/tb ilvl` prints diagnostics.
+
+## 1.8.99
+- Rogue poison reminder: right-click it (or `/tb poisons`) to list every poison in your bags and apply any to main hand or off hand.
+- Saved-character labels now read "Name (60 Priest) - Server" with class colour; server name read from more sources (`/tb names` prints them).
+- Profession windows: new "All crafts" button opens a list of every craft sorted by profit (vendor and AH net), priced from TSM market values when TSM is loaded.
+
+## 1.9.0
+- Saved bank view: free slots are shown (this tab and whole bank, plus a count on each tab button), every slot is drawn as a bordered slot with quality-coloured borders, and the grid sits in an inset panel like the real bank.
+
+## 1.9.1
+- Saved bank view: header shows only whole-bank free slots; free slots now show a visible empty-slot icon on a lighter slot.
+
+## 1.9.2
+- Saved bank view: new "All tabs" view (default) shows every bank tab in one grid; individual tabs still available.
+
+## 1.9.3
+- Battlegrounds: the buff tracker looped over aura-change event payloads that the client marks as inaccessible to tainted code (every aura update in a battleground raised "attempted to iterate a table that cannot be accessed while tainted"). All such loops now use a proper accessibility check (canaccesstable) and are protected.
+
+## 1.9.4
+- Reverted the battleground workarounds that did not help: the square minimap, minimap layout and chat hooks work normally inside battlegrounds/arenas again.
+
+## 1.9.5
+- Buff reminders now update in combat: a reminder fades as soon as you cast its spell (or the buff shows up), instead of waiting until combat ends. The full re-layout still happens out of combat.

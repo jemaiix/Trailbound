@@ -4,7 +4,7 @@
 --  * Optional automatic spirit release when you die in a battleground.
 -- Tab is switched with override bindings, which the game only allows outside combat, so the
 -- binding is refreshed on zone changes and when combat ends.
-ForeverAssistPvP={Version='1.8.98'}
+ForeverAssistPvP={Version='1.9.5'}
 local V=ForeverAssistPvP
 local function combat() return InCombatLockdown and InCombatLockdown() end
 local function cfg() return ForeverAssistPlay and ForeverAssistPlay.Settings and ForeverAssistPlay.Settings() or {} end
