@@ -3,7 +3,7 @@
 --   Space while the line is out interacts with the bobber to reel the fish in.
 -- Without a fishing pole equipped nothing is bound and Space behaves normally.
 -- Bindings are override bindings on a secure button, so they are never active in combat.
-ForeverAssistFishing={Version='1.9.5'}
+ForeverAssistFishing={Version='1.9.10'}
 local F=ForeverAssistFishing
 local FISHING_SPELL=7620
 local LURES={6533,6532,7307,6530,6529}   -- strongest first: Aquadynamic Fish Attractor, Bright Baubles, Flesh Eating Worm, Nightcrawlers, Shiny Bauble

@@ -1,5 +1,5 @@
 --------------------------------------------------------------------
--- Trailbound 1.9.5
+-- Trailbound 1.9.10
 --  * Auto-opens vendor (and optionally trainer) gossip
 --  * Auto accepts / turns in quests (skips quests with a reward choice)
 --  * Auto-sells gray junk when a vendor window opens
@@ -784,7 +784,7 @@ end
 -- Settings the game cannot fully switch over while running: changing one offers a UI reload.
 local RELOAD_KEYS = {
     squareMinimap = "Square minimap", compactMinimap = "Minimap spacing and mail icon", minimapMenu = "Addon icons on minimap right-click",
-    hideStanceBar = "Stance bar visibility", moveBags = "Draggable bags", customBag = "Custom bag window",
+    moveBags = "Draggable bags", customBag = "Custom bag window",
 }
 local pendingReload, pendingReloadList = {}, {}
 StaticPopupDialogs["TRAILBOUND_RELOAD"] = {
@@ -962,7 +962,6 @@ local function CreateOptions()
     local recovery=section('recovery','ForeverAssistRecoveryOptions','Combat & recovery','Combat errors, mana, food, drink, and camp timers.')
     heading(recovery,'Combat',-70)
     Check(recovery,"quietErrors","Hide and mute common combat errors",0,-99,applyPlay)
-    Check(recovery,"hideStanceBar","Hide stance / shapeshift bar",0,-132,applyPlay)
     Check(recovery,"fsr","Enable five-second mana-rule bar",0,-165)
     Slider(recovery,"fsrScale","Mana bar height",6,-216,.5,2,.1,AnchorFSR)
     heading(recovery,'Recovery',-244)
@@ -1456,7 +1455,7 @@ SlashCmdList["FOREVERASSIST"] = function(msg)
         ForeverAssistSystems.Camera(value, true)
         return
     end
-    if msg == "version" then Print("Version 1.9.5 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
+    if msg == "version" then Print("Version 1.9.10 | Gameplay "..tostring(ForeverAssistPlay.Version or "old/unversioned").." | Buff rules "..tostring(ForeverAssistBuffRulesVersion or "old/unversioned").." | Bags "..tostring(ForeverAssistSystems.Version or "old/unversioned"))
     elseif msg == "edit" then ForeverAssistLayout.Set(not ForeverAssistLayout.active)
     elseif msg == "gold" then ForeverAssistSystems.GoldReport()
     elseif msg == "audiodebug" then ForeverAssistAudio.Debug()

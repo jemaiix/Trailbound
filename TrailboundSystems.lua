@@ -1,5 +1,5 @@
 -- Gathering, account inventory, separated training, professions and camera.
-ForeverAssistSystems = {Version="1.9.5"}
+ForeverAssistSystems = {Version="1.9.10"}
 local S = ForeverAssistSystems
 local account, character, getSettings, currentKey
 local moneyReadyAt=0

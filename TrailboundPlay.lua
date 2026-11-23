@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.9.5'
+ForeverAssistPlay.Version='1.9.10'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -1784,25 +1784,7 @@ character.keptJunk=character.keptJunk or {};account.mailRecipients=account.mailR
  if DoTradeSkill then hooksecurefunc('DoTradeSkill',function(_,count) P.CraftStart(nil,count) end) end
  if UpdateContainerFrameAnchors then hooksecurefunc('UpdateContainerFrameAnchors',function() P.ApplyBagPositions();P.LiftForReagents() end) end
 end
-local stanceHooks={}
-function P.ApplyStanceBar()
- if combat() then return end
- for _,name in ipairs({'StanceBar','StanceBarFrame','ShapeshiftBarFrame'}) do
-  local f=_G[name]
-  if f then
-   if not stanceHooks[f] then
-    stanceHooks[f]={shown=f:IsShown()}
-    f:HookScript('OnShow',function(self) if settings().hideStanceBar and not combat() then self:Hide() end end)
-   end
-   local state=stanceHooks[f]
-   if settings().hideStanceBar then
-    if not state.hidden then state.shown=f:IsShown();state.hidden=true end
-    f:Hide()
-   elseif state.hidden then state.hidden=false;if state.shown then f:Show() end end
-  end
- end
-end
-function P.ApplySettings() if not account then return end;ForeverAssistBuffTracker.ApplySettings();for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','combinedReagents','lowBagWarning','fullBagJunk','mailPrefill','compactMinimap','minimapMenu','fastLoot','squareMinimap','nutritionTimers','wellFedReminder'}) do if settings()[key]==nil then settings()[key]=true end end;P.BuildRings();P.ApplyStanceBar();P.ApplyJunkBinding();setupErrors();hookBags();P.CheckCamp();P.CheckNutrition();if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end;P.ApplySquareMinimap();if ForeverAssistBag then ForeverAssistBag.Refresh() end;if settings().minimapMenu then setupMinimap() else restoreLaunchers() end end
+function P.ApplySettings() if not account then return end;ForeverAssistBuffTracker.ApplySettings();for _,key in ipairs({'quietErrors','xpDetails','swingTimer','campNotices','moveBags','combinedReagents','lowBagWarning','fullBagJunk','mailPrefill','compactMinimap','minimapMenu','fastLoot','squareMinimap','nutritionTimers','wellFedReminder'}) do if settings()[key]==nil then settings()[key]=true end end;P.BuildRings();P.ApplyJunkBinding();setupErrors();hookBags();P.CheckCamp();P.CheckNutrition();if nutritionFrame then position(nutritionFrame,'nutritionPosition',0,145) end;P.ApplySquareMinimap();if ForeverAssistBag then ForeverAssistBag.Refresh() end;if settings().minimapMenu then setupMinimap() else restoreLaunchers() end end
 function P.Event(_,event,a,b,c)
  if not account then return end
  if event=='LOOT_READY' then P.FastLoot()
@@ -1810,7 +1792,7 @@ function P.Event(_,event,a,b,c)
  elseif event=='LOOT_SLOT_CLEARED' then P.CloseEmptyLoot()
  elseif event=='LOOT_CLOSED' then lootedSlots={};speedyLootActive=false;lootOpened=false
  elseif event=='PLAYER_LOGIN' then
-  P.ApplyStanceBar();say('Version '..P.Version..' loaded.');sessionStart=GetTime();sessionXP=0;P.RecordXP();createXP();createSwings();P.ApplySquareMinimap();P.RefreshQuests();nutritionNames();P.CheckNutrition();P.ApplyJunkBinding();setupErrors();hookMail();hookTrainer();hookBags();setupMinimap();P.BuildRings();if RequestTimePlayed then RequestTimePlayed() end
+  say('Version '..P.Version..' loaded.');sessionStart=GetTime();sessionXP=0;P.RecordXP();createXP();createSwings();P.ApplySquareMinimap();P.RefreshQuests();nutritionNames();P.CheckNutrition();P.ApplyJunkBinding();setupErrors();hookMail();hookTrainer();hookBags();setupMinimap();P.BuildRings();if RequestTimePlayed then RequestTimePlayed() end
  elseif (event=='UNIT_AURA' or event=='UNIT_SPELLCAST_CHANNEL_START' or event=='UNIT_SPELLCAST_CHANNEL_UPDATE' or event=='UNIT_SPELLCAST_CHANNEL_STOP') and a=='player' then P.CheckNutrition();P.CheckCamp()
  elseif event=='CHAT_MSG_COMBAT_XP_GAIN' then P.RecordMobXP(a)
  elseif event=='PLAYER_XP_UPDATE' and a=='player' then P.RecordXP()
@@ -1827,7 +1809,7 @@ function P.Event(_,event,a,b,c)
  elseif event=='TRAINER_CLOSED' then training=nil
  elseif event=='UNIT_SPELLCAST_SUCCEEDED' and a=='player' and craft and (not craft.id or c==craft.id or c==craft.activeSpell) then craft.remaining=craft.remaining-1;if craft.remaining<=0 then craft=nil end
  elseif (event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED') and a=='player' then craft=nil
- elseif event=='ADDON_LOADED' then P.ApplyStanceBar();setupErrors();hookBags();hookMail();hookTrainer()
+ elseif event=='ADDON_LOADED' then setupErrors();hookBags();hookMail();hookTrainer()
  elseif event=='SPELLS_CHANGED' then paladinCache=nil;P.BuildRings()
  elseif event=='PLAYER_REGEN_ENABLED' then P.ApplySettings();pcall(P.UpdateReagentPanel)
  elseif event=='BAG_UPDATE_DELAYED' then hookBags()

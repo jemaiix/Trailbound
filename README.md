@@ -214,5 +214,10 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 ## 1.9.4
 - Reverted the battleground workarounds that did not help: the square minimap, minimap layout and chat hooks work normally inside battlegrounds/arenas again.
 
+## 1.9.10
+
+- Removed the "Hide stance / shapeshift bar" option. Hiding that Blizzard frame caused a flood of Lua errors in battlegrounds. If you had it on, the bar returns to normal after the reload.
+- Reverted the 1.9.6-1.9.9 battleground workarounds (they did not address the cause).
+
 ## 1.9.5
 - Buff reminders now update in combat: a reminder fades as soon as you cast its spell (or the buff shows up), instead of waiting until combat ends. The full re-layout still happens out of combat.
