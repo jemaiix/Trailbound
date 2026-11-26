@@ -214,6 +214,24 @@ When reporting a problem, include your Trailbound version (`/tb version`), the s
 ## 1.9.4
 - Reverted the battleground workarounds that did not help: the square minimap, minimap layout and chat hooks work normally inside battlegrounds/arenas again.
 
+## 1.9.14
+
+- Fixed a Lua syntax error in the chat options text introduced in 1.9.13.
+
+## 1.9.13
+
+- Saved characters: the server is now taken only from values that name a server type (PvP, PvE, RP, Hardcore, Normal) and remembered account-wide, so two-word character names no longer show their second name as the server.
+- Clickable URLs in chat are back, added through the game's chat-filter list so no chat window function is replaced (the filter is off inside battlegrounds/arenas). Class/race icons and short channel names stay removed: they cannot be added without replacing the chat window's AddMessage, which caused the battleground errors.
+
+## 1.9.12
+
+- Battlegrounds: Trailbound no longer replaces any chat window's AddMessage function or adds a chat sender filter. Writing to that Blizzard chat field marks it as addon-tainted for the whole session (restoring it does not undo this), so when the game printed "N players have joined the battle" its chat code ran tainted and then failed on the restricted roster, over and over. This is the most likely cause of the battleground error flood and repeated chat lines.
+- Removed the chat class/race icons, short channel names and automatic clickable URLs (they depended on that replacement). Font size, no-fade, line spacing, Ctrl-click link copy and /copychat remain.
+
+## 1.9.11
+
+- Reagent drawer: right-click now uses a secure button, so reagent-bag items can be used, sold and posted at the auction house (the previous addon-side call was blocked by the game, causing "action blocked" errors). Buttons are no longer repositioned in combat.
+
 ## 1.9.10
 
 - Removed the "Hide stance / shapeshift bar" option. Hiding that Blizzard frame caused a flood of Lua errors in battlegrounds. If you had it on, the bar returns to normal after the reload.

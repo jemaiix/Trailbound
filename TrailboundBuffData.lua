@@ -1,4 +1,4 @@
-ForeverAssistBuffRulesVersion="1.9.10"
+ForeverAssistBuffRulesVersion="1.9.14"
 -- Selected important active buffs. Passive talents, debuffs and forms are excluded; Plainsrunning tracks its active stacking aura.
 ForeverAssistImportantBuffs = {
  [14751] = "offense", -- Inner Focus: active until consumed, no duration.

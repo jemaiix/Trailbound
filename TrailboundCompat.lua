@@ -153,16 +153,31 @@ function ForeverAssistRealmLabel(realm)
  return realm
 end
 -- The server name, from whichever API the client fills in (some return an empty string).
+local function realmIsServerType(value)
+ if type(value)~='string' or value=='' then return false end
+ local text=' '..value:lower():gsub('[%-_/]',' ')..' '
+ return text:find('pvp',1,true)~=nil or text:find('pve',1,true)~=nil or text:find('%srp%s')~=nil or text:find('roleplay',1,true)~=nil or text:find('hardcore',1,true)~=nil or text:find('%snormal%s')~=nil
+end
+-- Clients with two-word character names can report the second word of the name as the "realm". The server of the
+-- account is the same for every character, so a value that names a server type (PvP, PvE, RP...) wins, and the
+-- first server-type value ever seen is remembered for the whole account.
 function ForeverAssistGetRealm()
  local function ok(v) return type(v)=='string' and (not issecretvalue or not issecretvalue(v)) and v:match('%S') and v:match('^%s*(.-)%s*$') or nil end
- local found=GetRealmName and ok(GetRealmName())
- if found then return found end
- found=GetNormalizedRealmName and ok(GetNormalizedRealmName())
- if found then return found end
- if UnitFullName then local _,realm=UnitFullName('player');found=ok(realm);if found then return found end end
- if GetServerName then found=ok(GetServerName());if found then return found end end
- found=GetCVar and ok(GetCVar('realmName'))
- return found or ''
+ local list={}
+ local function add(v) v=ok(v);if v then list[#list+1]=v end end
+ if GetRealmName then add(GetRealmName()) end
+ if GetNormalizedRealmName then add(GetNormalizedRealmName()) end
+ if GetServerName then add(GetServerName()) end
+ if GetCVar then local good,v=pcall(GetCVar,'realmName');if good then add(v) end end
+ if UnitFullName then local _,realm=UnitFullName('player');add(realm) end
+ for _,v in ipairs(list) do
+  if realmIsServerType(v) then
+   if type(ForeverAssistAccountDB)=='table' then ForeverAssistAccountDB.commonRealm=v end
+   return v
+  end
+ end
+ if type(ForeverAssistAccountDB)=='table' and ok(ForeverAssistAccountDB.commonRealm) then return ForeverAssistAccountDB.commonRealm end
+ return list[1] or ''
 end
 function ForeverAssistRealmDebug()
  local function show(label,v) print('|cffd2b077Trailbound realm:|r '..label..' = "'..tostring(v)..'"') end
@@ -182,7 +197,20 @@ function ForeverAssistCharacterLabel(record,fullName)
   if color and classText~='' then classText=string.format('|cff%02x%02x%02x%s|r',(color.r or 1)*255,(color.g or 1)*255,(color.b or 1)*255,classText) end
   text=text..' |cffaaaaaa('..(record.level and (record.level..' ') or '')..'|r'..classText..'|cffaaaaaa)|r'
  end
- local realm=type(record.realm)=='string' and record.realm:match('%S') and ForeverAssistRealmLabel(record.realm) or ''
+ local rawRealm=type(record.realm)=='string' and record.realm:match('%S') and record.realm or ''
+ if rawRealm~='' and not realmIsServerType(rawRealm) and type(ForeverAssistAccountDB)=='table' then
+  local common=ForeverAssistAccountDB.commonRealm
+  if type(common)~='string' and type(ForeverAssistAccountDB.characters)=='table' then
+   for _,other in pairs(ForeverAssistAccountDB.characters) do if type(other)=='table' and realmIsServerType(other.realm) then common=other.realm;break end end
+  end
+  if type(common)=='string' then rawRealm=common end
+ end
+ local realm=rawRealm~='' and ForeverAssistRealmLabel(rawRealm) or ''
+ -- A "realm" that is just part of the character's own name is not a server.
+ if realm~='' and not realmIsServerType(rawRealm) then
+  local lowered=realm:lower()
+  for word in tostring(name):lower():gmatch('%a+') do if #word>=2 and (word:find(lowered,1,true)==1 or lowered:find(word,1,true)==1) then realm='';break end end
+ end
  if realm~='' then text=text..' - '..realm end
  return text
 end

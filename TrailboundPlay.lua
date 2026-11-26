@@ -1,6 +1,6 @@
 -- Original utility UI; no third-party addon code is embedded.
 ForeverAssistPlay = {}
-ForeverAssistPlay.Version='1.9.10'
+ForeverAssistPlay.Version='1.9.14'
 local P=ForeverAssistPlay
 local account,character,settings
 local function say(s) print('|cffd2b077Trailbound:|r '..s) end
@@ -835,7 +835,7 @@ local function setLift(f,lift)
  if point and type(y)=='number' then f:SetPoint(point,rel,relPoint,x,y+(lift-applied));f.tbLiftApplied=lift end
 end
 function P.ClearReagents()
- for _,b in ipairs(reagentButtons) do b:Hide() end
+ for _,b in ipairs(reagentButtons) do if not (b.tbSecure and combat()) then b:Hide() end end
  hideReagentWindow()
  local f=ContainerFrameCombinedBags
  if f and (f.tbLift or 0)>0 then setLift(f,0) end
@@ -867,7 +867,9 @@ end
 local function reagentClick(self,mouse)
  if combat() then return end
  local C=C_Container
- if mouse=='RightButton' then pcall(C.UseContainerItem,REAGENT_BAG,self.slot);return end
+ -- Right-click (use / post to the auction house / sell) is handled by the secure button itself; calling
+ -- UseContainerItem from addon code is blocked by the game and cannot place items in the auction house.
+ if mouse=='RightButton' then return end
  if self.hasItem then
   local link=C.GetContainerItemLink and C.GetContainerItemLink(REAGENT_BAG,self.slot)
   if link and HandleModifiedItemClick and HandleModifiedItemClick(link) then return end
@@ -879,14 +881,19 @@ local function reagentClick(self,mouse)
  pcall(C.PickupContainerItem,REAGENT_BAG,self.slot)
 end
 local function reagentSlot(parent,slot)
- local b=CreateFrame('Button',nil,parent);b.slot=slot
+ local b
+ if not combat() then
+  local ok,secure=pcall(CreateFrame,'Button',nil,parent,'SecureActionButtonTemplate')
+  if ok and secure then b=secure;b.tbSecure=true;pcall(b.SetAttribute,b,'type2','macro');pcall(b.SetAttribute,b,'macrotext2','/use '..REAGENT_BAG..' '..slot) end
+ end
+ b=b or CreateFrame('Button',nil,parent);b.slot=slot
  b.edge=b:CreateTexture(nil,'BACKGROUND');b.edge:SetAllPoints()
  b.fill=b:CreateTexture(nil,'BORDER');b.fill:SetPoint('TOPLEFT',2,-2);b.fill:SetPoint('BOTTOMRIGHT',-2,2)
  b.icon=b:CreateTexture(nil,'ARTWORK');b.icon:SetPoint('TOPLEFT',2,-2);b.icon:SetPoint('BOTTOMRIGHT',-2,2)
  b.countText=b:CreateFontString(nil,'OVERLAY','NumberFontNormal');b.countText:SetPoint('BOTTOMRIGHT',-3,3)
  b.cooldown=CreateFrame('Cooldown',nil,b,'CooldownFrameTemplate');b.cooldown:SetAllPoints(b.icon)
  b:RegisterForClicks('LeftButtonUp','RightButtonUp');b:RegisterForDrag('LeftButton')
- b:SetScript('OnClick',reagentClick);b:SetScript('OnDragStart',function(self) if not combat() then pcall(C_Container.PickupContainerItem,REAGENT_BAG,self.slot) end end)
+ b:HookScript('OnClick',reagentClick);b:SetScript('OnDragStart',function(self) if not combat() then pcall(C_Container.PickupContainerItem,REAGENT_BAG,self.slot) end end)
  b:SetScript('OnReceiveDrag',function(self) if not combat() then pcall(C_Container.PickupContainerItem,REAGENT_BAG,self.slot) end end)
  b:SetScript('OnEnter',reagentTooltip);b:SetScript('OnLeave',function() GameTooltip:Hide() end)
  return b
@@ -978,9 +985,11 @@ local function reagentRefresh()
  local art=nativeEmptyArt(f)
  for slot=1,slots do
   local b=reagentButtons[slot] or reagentSlot(window,slot);reagentButtons[slot]=b
-  if b:GetParent()~=window then b:SetParent(window) end
-  local row,col=math.floor((slot-1)/cols),(slot-1)%cols
-  b:SetSize(grid.size,grid.size);b:ClearAllPoints();b:SetPoint('TOPLEFT',window,'TOPLEFT',x0+col*grid.colStep,-PADV-row*grid.rowStep);b:SetFrameLevel(window:GetFrameLevel()+3);b:Show()
+  if not (b.tbSecure and combat()) then
+   if b:GetParent()~=window then b:SetParent(window) end
+   local row,col=math.floor((slot-1)/cols),(slot-1)%cols
+   b:SetSize(grid.size,grid.size);b:ClearAllPoints();b:SetPoint('TOPLEFT',window,'TOPLEFT',x0+col*grid.colStep,-PADV-row*grid.rowStep);b:SetFrameLevel(window:GetFrameLevel()+3);b:Show()
+  end
   local info=C_Container.GetContainerItemInfo(REAGENT_BAG,slot)
   if issecretvalue and issecretvalue(info) then info=nil end
   local icon=info and clean(info.iconFileID);local quality=info and clean(info.quality)
@@ -998,7 +1007,7 @@ local function reagentRefresh()
    b.countText:SetText('');b.cooldown:Clear()
   end
  end
- for slot=slots+1,#reagentButtons do reagentButtons[slot]:Hide() end
+ for slot=slots+1,#reagentButtons do if not (reagentButtons[slot].tbSecure and combat()) then reagentButtons[slot]:Hide() end end
 end
 function P.Settings() return settings() end
 -- The drawer is made of plain frames, so it is built in combat too; only moving the bag waits for combat to end.

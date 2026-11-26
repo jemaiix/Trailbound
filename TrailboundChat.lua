@@ -1,4 +1,4 @@
-ForeverAssistChat={Version='1.9.10'}
+ForeverAssistChat={Version='1.9.14'}
 local C=ForeverAssistChat
 local settings,options,copyWindow,copyBox
 local identities,wrapped={},{ }
@@ -47,6 +47,15 @@ local function urls(text)
  end
  return table.concat(parts)
 end
+local function linkify(s)
+ local parts={};local at=1
+ while true do
+  local first,last=s:find('|H.-|h.-|h',at)
+  if not first then parts[#parts+1]=urls(s:sub(at));break end
+  parts[#parts+1]=urls(s:sub(at,first-1));parts[#parts+1]=s:sub(first,last);at=last+1
+ end
+ return table.concat(parts)
+end
 function C.Format(message)
  if not settings or not safe(message) or type(message)~='string' then return message end
  if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return message end
@@ -92,9 +101,7 @@ function C.Apply()
   local frame=_G['ChatFrame'..i]
   if frame and frame.AddMessage and i~=2 then
    if not wrapped[frame]then
-    local original=frame.AddMessage;local click=frame:GetScript('OnHyperlinkClick')
-    local wrapper=function(self,msg,...)return original(self,C.Format(msg),...)end
-    frame.AddMessage=wrapper
+    local click=frame:GetScript('OnHyperlinkClick')
     frame:SetScript('OnHyperlinkClick',function(self,link,label,...)
      if C.Link(link)then return end
      -- Ctrl-click on an item stays native (dressing room); copy items with Ctrl+Alt-click instead.
@@ -103,12 +110,9 @@ function C.Apply()
      if settings().chatCopyLinks~=false and wantsCopy and safe(label)and safe(link)and type(link)=='string'then C.Copy(type(label)=='string'and label or link);return end
      if click then return click(self,link,label,...)end
     end)
-    wrapped[frame]={original=original,wrapper=wrapper,active=true}
+    wrapped[frame]={}
    end
    local state=wrapped[frame];local cfg=settings()
-   -- Inside battlegrounds/arenas chat text is restricted: hand the frame back to Blizzard completely.
-   local wantActive=not C.Restricted()
-   if state.original and state.active~=wantActive then frame.AddMessage=wantActive and state.wrapper or state.original;state.active=wantActive end
    if cfg.chatFontSize then
     local font,size,flags=frame:GetFont();state.font=state.font or {font,size,flags};frame:SetFont(font,cfg.chatFontSize,flags)
    elseif state.font then frame:SetFont(unpack(state.font));state.font=nil end
@@ -137,9 +141,16 @@ function C.SyncFilters()
 end
 function C.Initialize(get)
  settings=get
- if not C.filters and ChatFrame_AddMessageEventFilter then
-  C.filter=function(_,_,_,author,...)C.Remember(author,select(10,...));return false end
-  C.filters=true
+ -- Clickable URLs are added through the game's own chat-filter list (a supported hook that edits the message text only).
+ -- The chat window itself is never modified, and the filter is removed inside arenas/battlegrounds.
+ if not C.filter then
+  C.filter=function(_,_,msg,...)
+   if not settings or settings().chatCopyLinks==false or not safe(msg) or type(msg)~='string' then return false end
+   if not msg:find('https?://') and not msg:find('www%.') then return false end
+   local ok,out=pcall(linkify,msg)
+   if ok and type(out)=='string' then return false,out,... end
+   return false
+  end
  end
  C.SyncFilters()
  C.Apply()
@@ -148,7 +159,7 @@ function C.Options()
  if not options then
   options=CreateFrame('Frame','ForeverAssistChatOptions',UIParent,'BackdropTemplate');options:SetSize(490,520)
   local t=options:CreateFontString(nil,'OVERLAY','TrailboundTitle');t:SetPoint('TOPLEFT',20,-20);t:SetText('Chat appearance')
-  local rows={{'chatClassIcons','Class icon before player names'},{'chatRaceIcons','Race icon before player names'},{'chatCompact','Short channel names (G, P, R, 1...)'},{'chatNoFade','Keep messages visible (no fading)'},{'chatTight','Compact line spacing'},{'chatCopyLinks','Clickable URLs and Ctrl-click link copying',true}}
+  local rows={{'chatNoFade','Keep messages visible (no fading)'},{'chatTight','Compact line spacing'},{'chatCopyLinks','Clickable URLs and Ctrl-click link copying',true}}
   for i,r in ipairs(rows)do
    local c=CreateFrame('CheckButton',nil,options,'UICheckButtonTemplate');c:SetPoint('TOPLEFT',20,-55-i*38);local label=c:CreateFontString(nil,'OVERLAY','TrailboundText');label:SetPoint('LEFT',c,'RIGHT',3,0);label:SetText(r[2])
    c:SetScript('OnClick',function(self)settings()[r[1]]=self:GetChecked()and true or false;C.Apply()end)
@@ -157,7 +168,7 @@ function C.Options()
   local b=CreateFrame('Button',nil,options,'UIPanelButtonTemplate');b:SetSize(290,26);b:SetPoint('TOPLEFT',20,-345)
   local function caption()b:SetText('Chat font size: '..tostring(settings().chatFontSize or 'Default'))end
   b:SetScript('OnClick',function()local n=settings().chatFontSize or 12;if n>=20 then settings().chatFontSize=nil else settings().chatFontSize=n+1 end;C.Apply();caption()end);b:HookScript('OnShow',caption);ForeverAssistStyleButton(b)
-  local help=options:CreateFontString(nil,'OVERLAY','TrailboundText');help:SetPoint('TOPLEFT',20,-395);help:SetWidth(440);help:SetJustifyH('LEFT');help:SetText('Existing class name colors are preserved. Icons need known sender data; unknown or restricted identities remain unchanged.\n\nClick a URL, Ctrl-click a player link, or Ctrl+Alt-click an item link, then Ctrl+C (Ctrl-click on an item still opens the dressing room). Use /copychat to copy recent chat history. Normal clicks retain their usual behavior.');options:Hide()
+  local help=options:CreateFontString(nil,'OVERLAY','TrailboundText');help:SetPoint('TOPLEFT',20,-395);help:SetWidth(440);help:SetJustifyH('LEFT');help:SetText('The chat window itself is never modified. URLs are made clickable through the chat filter of the game, which is switched off inside battlegrounds and arenas.');options:Hide()
  end
  ForeverAssistShowEditor(options)
 end

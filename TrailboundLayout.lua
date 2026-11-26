@@ -1,5 +1,5 @@
 -- Addon-only layout previews: never open NPC windows or Blizzard Edit Mode.
-ForeverAssistLayout={Version='1.9.10',active=false}
+ForeverAssistLayout={Version='1.9.14',active=false}
 local L=ForeverAssistLayout
 local getSettings,toolbar
 local movers={}
